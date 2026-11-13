@@ -2,19 +2,27 @@ import json
 import unittest
 from pathlib import Path
 
-import duckdb
-
 DB = Path("db/olist.duckdb")
+FINDINGS = Path("outputs/findings/analysis_findings.json")
 
 
 class TestAnalyticsIntegrity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not DB.exists() or not FINDINGS.exists():
+            raise unittest.SkipTest(
+                "Requires db/olist.duckdb and outputs/findings/analysis_findings.json "
+                "(run pipeline and export after placing data in data/raw/)"
+            )
+        import duckdb
+
         cls.conn = duckdb.connect(str(DB), read_only=True)
 
     @classmethod
     def tearDownClass(cls):
-        cls.conn.close()
+        conn = getattr(cls, "conn", None)
+        if conn is not None:
+            conn.close()
 
     def test_grain_fact_orders(self):
         total, distinct = self.conn.execute(
@@ -56,9 +64,7 @@ class TestAnalyticsIntegrity(unittest.TestCase):
         self.assertEqual(row, (96476, 89941))
 
     def test_findings_file_has_approved_kpis(self):
-        data = json.loads(
-            Path("outputs/findings/analysis_findings.json").read_text(encoding="utf-8")
-        )
+        data = json.loads(FINDINGS.read_text(encoding="utf-8"))
         self.assertEqual(data["kpi_governance"]["version"], "1.1")
         s = data["synthesis"]["overall"]
         for k in [

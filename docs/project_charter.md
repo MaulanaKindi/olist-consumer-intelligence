@@ -6,8 +6,8 @@
 **Project Type:** Consumer Intelligence / Market Intelligence  
 **Primary Decision Audience:** E-commerce Marketplace Management  
 **Dataset:** Brazilian E-Commerce Public Dataset by Olist  
-**Data Period:** 2016–2018  
-**Status:** Draft v0.1
+**Data Period:** 2016–2018 (observed 2016-09-04 to 2018-10-17)  
+**Status:** Approved (v1.0, analysis and deliverables completed)
 
 ### 1. Project Background
 
