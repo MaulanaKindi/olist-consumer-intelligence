@@ -1,0 +1,111 @@
+{
+    "grain": [
+        {
+            "table": "fact_orders",
+            "keys": [
+                "order_id"
+            ],
+            "total_rows": 99441,
+            "distinct_keys": 99441,
+            "valid": true
+        },
+        {
+            "table": "fact_order_items",
+            "keys": [
+                "order_id",
+                "order_item_id"
+            ],
+            "total_rows": 112650,
+            "distinct_keys": 112650,
+            "valid": true
+        },
+        {
+            "table": "dim_customers",
+            "keys": [
+                "customer_unique_id"
+            ],
+            "total_rows": 96096,
+            "distinct_keys": 96096,
+            "valid": true
+        },
+        {
+            "table": "dim_products",
+            "keys": [
+                "product_id"
+            ],
+            "total_rows": 32951,
+            "distinct_keys": 32951,
+            "valid": true
+        },
+        {
+            "table": "dim_sellers",
+            "keys": [
+                "seller_id"
+            ],
+            "total_rows": 3095,
+            "distinct_keys": 3095,
+            "valid": true
+        },
+        {
+            "table": "fact_payments",
+            "keys": [
+                "order_id",
+                "payment_sequential"
+            ],
+            "total_rows": 103886,
+            "distinct_keys": 103886,
+            "valid": true
+        },
+        {
+            "table": "fact_reviews",
+            "keys": [
+                "review_id"
+            ],
+            "total_rows": 98410,
+            "distinct_keys": 98410,
+            "valid": true
+        },
+        {
+            "table": "fact_delivery",
+            "keys": [
+                "order_id"
+            ],
+            "total_rows": 99441,
+            "distinct_keys": 99441,
+            "valid": true
+        }
+    ],
+    "transforms": [
+        {
+            "check": "fact_orders.order_total_value == sum(payments)",
+            "mismatches": 0,
+            "valid": true
+        },
+        {
+            "check": "fact_orders.order_items_count == count(order_items)",
+            "mismatches": 0,
+            "valid": true
+        },
+        {
+            "check": "fact_order_items grain unique",
+            "total_rows": 112650,
+            "distinct_keys": 112650,
+            "valid": true
+        },
+        {
+            "check": "fact_reviews review_score in 1-5",
+            "invalid_scores": 0,
+            "valid": true
+        },
+        {
+            "check": "dim_customers.total_orders == count(orders)",
+            "mismatches": 0,
+            "valid": true
+        },
+        {
+            "check": "fact_delivery.delivery_time_days == fact_orders.delivery_time_days",
+            "mismatches": 0,
+            "valid": true
+        }
+    ]
+}

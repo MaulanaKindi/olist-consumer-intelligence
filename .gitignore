@@ -1,0 +1,86 @@
+# Data files (large CSV/Parquet files)
+data/raw/
+data/processed/
+data/*.csv
+data/*.parquet
+
+# DuckDB database file
+db/*.duckdb
+db/*.duckdb.wal
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Jupyter notebook checkpoints
+*.ipynb_checkpoints/
+.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Output artifacts (regenerable); keep curated reports if needed by removing specific patterns
+outputs/
+!outputs/reports/.gitkeep
+
+# Temporary files
+*.tmp
+*.temp
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Package manager files
+pip-cache/
+npm-cache/
+ruby-cache/
+
+# Log files
+*.log
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Documentation
+_site/
+
+# System files
+/system/
+
+# Backup files
+*.bak
+*.backup
+
+# Local scratch
+body.json
+nbody.json
+-p/
+
+# Project-specific ignores
+# Add any project-specific files that should not be committed here

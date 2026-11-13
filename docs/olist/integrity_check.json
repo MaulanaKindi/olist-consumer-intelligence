@@ -1,0 +1,30 @@
+{
+    "order_items_to_orders": {
+        "orphaned_count": 0,
+        "status": "PASS"
+    },
+    "order_items_to_products": {
+        "orphaned_count": 0,
+        "status": "PASS"
+    },
+    "order_items_to_sellers": {
+        "orphaned_count": 0,
+        "status": "PASS"
+    },
+    "payments_to_orders": {
+        "orphaned_count": 0,
+        "status": "PASS"
+    },
+    "reviews_to_orders": {
+        "orphaned_count": 0,
+        "status": "PASS"
+    },
+    "orders_to_customers": {
+        "orphaned_count": 0,
+        "status": "PASS"
+    },
+    "geolocation_uniqueness": {
+        "total_rows": 1000163,
+        "distinct_zip_prefixes": 19015
+    }
+}
