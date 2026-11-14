@@ -83,16 +83,58 @@ SELECT
     CAST(review_answer_timestamp AS TIMESTAMP) AS review_answer_timestamp
 FROM raw.reviews;
 
--- geolocation: deduplicate by zip_code_prefix (average lat/lng)
+-- geolocation: deduplicate by zip_code_prefix.
+-- Coordinates are averaged per prefix. Representative city/state are selected
+-- deterministically from the most frequent (city,state) pair for that prefix
+-- (ties broken by city, state) to avoid mixing independently chosen attributes.
 CREATE OR REPLACE TABLE staging.geolocation AS
+WITH base AS (
+    SELECT
+        geolocation_zip_code_prefix,
+        CAST(geolocation_lat AS DOUBLE) AS geolocation_lat,
+        CAST(geolocation_lng AS DOUBLE) AS geolocation_lng,
+        geolocation_city,
+        geolocation_state
+    FROM raw.geolocation
+),
+coords AS (
+    SELECT
+        geolocation_zip_code_prefix,
+        AVG(geolocation_lat) AS geolocation_lat,
+        AVG(geolocation_lng) AS geolocation_lng
+    FROM base
+    GROUP BY geolocation_zip_code_prefix
+),
+city_state_counts AS (
+    SELECT
+        geolocation_zip_code_prefix,
+        geolocation_city,
+        geolocation_state,
+        COUNT(*) AS cnt
+    FROM base
+    GROUP BY geolocation_zip_code_prefix, geolocation_city, geolocation_state
+),
+ranked AS (
+    SELECT
+        geolocation_zip_code_prefix,
+        geolocation_city,
+        geolocation_state,
+        ROW_NUMBER() OVER (
+            PARTITION BY geolocation_zip_code_prefix
+            ORDER BY cnt DESC, geolocation_city, geolocation_state
+        ) AS rn
+    FROM city_state_counts
+)
 SELECT
-    geolocation_zip_code_prefix,
-    AVG(CAST(geolocation_lat AS DOUBLE)) AS geolocation_lat,
-    AVG(CAST(geolocation_lng AS DOUBLE)) AS geolocation_lng,
-    MAX(geolocation_city) AS geolocation_city,  -- arbitrary pick
-    MAX(geolocation_state) AS geolocation_state
-FROM raw.geolocation
-GROUP BY geolocation_zip_code_prefix;
+    c.geolocation_zip_code_prefix,
+    c.geolocation_lat,
+    c.geolocation_lng,
+    r.geolocation_city,
+    r.geolocation_state
+FROM coords c
+LEFT JOIN ranked r
+    ON c.geolocation_zip_code_prefix = r.geolocation_zip_code_prefix
+   AND r.rn = 1;
 
 -- category_translation: pass through
 CREATE OR REPLACE TABLE staging.category_translation AS

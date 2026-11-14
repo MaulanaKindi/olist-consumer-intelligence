@@ -1,30 +1,49 @@
 {
     "order_items_to_orders": {
+        "total_rows": 112650,
+        "null_fk_rows": 0,
         "orphaned_count": 0,
+        "integrity_rate": 1.0,
         "status": "PASS"
     },
     "order_items_to_products": {
+        "total_rows": 112650,
+        "null_fk_rows": 0,
         "orphaned_count": 0,
+        "integrity_rate": 1.0,
         "status": "PASS"
     },
     "order_items_to_sellers": {
+        "total_rows": 112650,
+        "null_fk_rows": 0,
         "orphaned_count": 0,
+        "integrity_rate": 1.0,
         "status": "PASS"
     },
     "payments_to_orders": {
+        "total_rows": 103886,
+        "null_fk_rows": 0,
         "orphaned_count": 0,
+        "integrity_rate": 1.0,
         "status": "PASS"
     },
     "reviews_to_orders": {
+        "total_rows": 99224,
+        "null_fk_rows": 0,
         "orphaned_count": 0,
+        "integrity_rate": 1.0,
         "status": "PASS"
     },
     "orders_to_customers": {
+        "total_rows": 99441,
+        "null_fk_rows": 0,
         "orphaned_count": 0,
+        "integrity_rate": 1.0,
         "status": "PASS"
     },
     "geolocation_uniqueness": {
         "total_rows": 1000163,
-        "distinct_zip_prefixes": 19015
+        "distinct_zip_prefixes": 19015,
+        "note": "Multiple rows per zip prefix are expected in source; staging deduplicates per prefix."
     }
 }

@@ -54,6 +54,7 @@ SCHEMA_STAGING = "staging"
 SCHEMA_ANALYTICS = "analytics"
 
 # Analysis grain definitions
+# Grain: one row per declared key combination.
 GRAIN_DEFINITIONS = {
     "fact_orders": ["order_id"],
     "fact_order_items": ["order_id", "order_item_id"],
@@ -61,7 +62,7 @@ GRAIN_DEFINITIONS = {
     "dim_products": ["product_id"],
     "dim_sellers": ["seller_id"],
     "fact_payments": ["order_id", "payment_sequential"],
-    "fact_reviews": ["review_id"],
+    "fact_reviews": ["review_id", "order_id"],
     "fact_delivery": ["order_id"],
 }
 

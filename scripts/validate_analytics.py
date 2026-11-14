@@ -1,134 +1,190 @@
 """Validate analytics tables: grain integrity and transformation correctness."""
 
+import argparse
 import json
+import sys
 from pathlib import Path
 
 import duckdb
 
-DB_PATH = "db/olist.duckdb"
-OUT = Path("docs/olist/analytics_validation.json")
-OUT.parent.mkdir(parents=True, exist_ok=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-GRAIN_DEFINITIONS = {
-    "fact_orders": ["order_id"],
-    "fact_order_items": ["order_id", "order_item_id"],
-    "dim_customers": ["customer_unique_id"],
-    "dim_products": ["product_id"],
-    "dim_sellers": ["seller_id"],
-    "fact_payments": ["order_id", "payment_sequential"],
-    "fact_reviews": ["review_id"],
-    "fact_delivery": ["order_id"],
-}
+from src.config import DUCKDB_PATH, GRAIN_DEFINITIONS, PROJECT_ROOT  # noqa: E402
 
-results = {"grain": [], "transforms": []}
+DEFAULT_OUT = PROJECT_ROOT / "docs" / "olist" / "analytics_validation.json"
 
-conn = duckdb.connect(DB_PATH, read_only=True)
 
-# 1. Grain checks
-for table, keys in GRAIN_DEFINITIONS.items():
-    key_expr = ", ".join(keys)
-    total, distinct = conn.execute(
-        f"SELECT COUNT(*), COUNT(DISTINCT ({key_expr})) FROM analytics.{table}"
-    ).fetchone()
-    results["grain"].append(
-        {
-            "table": table,
-            "keys": keys,
-            "total_rows": total,
-            "distinct_keys": distinct,
-            "valid": total == distinct,
-        }
-    )
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db-path", type=str, default=str(DUCKDB_PATH))
+    parser.add_argument("--out", type=str, default=str(DEFAULT_OUT))
+    args = parser.parse_args(argv)
 
-# 2. Transformation correctness checks
-# fact_orders: order_total_value should equal sum of payments per order
-mismatch = conn.execute("""
-    SELECT COUNT(*) FROM analytics.fact_orders fo
-    WHERE ABS(fo.order_total_value - (
-        SELECT SUM(p.payment_value) FROM staging.payments p WHERE p.order_id = fo.order_id
-    )) > 0.01
-""").fetchone()[0]
-results["transforms"].append(
-    {
-        "check": "fact_orders.order_total_value == sum(payments)",
-        "mismatches": mismatch,
-        "valid": mismatch == 0,
-    }
-)
+    db_path = Path(args.db_path)
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
-# fact_orders: order_items_count should equal count of order_items
-mismatch = conn.execute("""
-    SELECT COUNT(*) FROM analytics.fact_orders fo
-    WHERE fo.order_items_count != (
-        SELECT COUNT(*) FROM staging.order_items oi WHERE oi.order_id = fo.order_id
-    )
-""").fetchone()[0]
-results["transforms"].append(
-    {
-        "check": "fact_orders.order_items_count == count(order_items)",
-        "mismatches": mismatch,
-        "valid": mismatch == 0,
-    }
-)
+    results = {"grain": [], "transforms": []}
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        # 1. Grain checks (must be non-empty and have unique, non-null keys)
+        for table, keys in GRAIN_DEFINITIONS.items():
+            key_expr = ", ".join(keys)
+            null_expr = " OR ".join(f"{k} IS NULL" for k in keys)
+            total, distinct, null_keys = conn.execute(f"""
+                SELECT
+                    COUNT(*),
+                    COUNT(DISTINCT ({key_expr})),
+                    SUM(CASE WHEN {null_expr} THEN 1 ELSE 0 END)
+                FROM analytics.{table}
+                """).fetchone()
+            total_i, distinct_i, null_i = int(total), int(distinct), int(null_keys or 0)
+            valid = total_i > 0 and total_i == distinct_i and null_i == 0
+            results["grain"].append(
+                {
+                    "table": table,
+                    "keys": keys,
+                    "total_rows": total_i,
+                    "distinct_keys": distinct_i,
+                    "null_key_rows": null_i,
+                    "valid": valid,
+                }
+            )
 
-# fact_order_items: grain should be unique per (order_id, order_item_id)
-total, distinct = conn.execute(
-    "SELECT COUNT(*), COUNT(DISTINCT (order_id, order_item_id)) FROM analytics.fact_order_items"
-).fetchone()
-results["transforms"].append(
-    {
-        "check": "fact_order_items grain unique",
-        "total_rows": total,
-        "distinct_keys": distinct,
-        "valid": total == distinct,
-    }
-)
+        # 2. Transformation correctness checks
+        mismatch = conn.execute("""
+            SELECT COUNT(*) FROM analytics.fact_orders fo
+            WHERE ABS(COALESCE(fo.order_total_value, 0) - COALESCE((
+                SELECT SUM(p.payment_value) FROM staging.payments p
+                WHERE p.order_id = fo.order_id
+            ), 0)) > 0.01
+            """).fetchone()[0]
+        results["transforms"].append(
+            {
+                "check": "fact_orders.order_total_value == sum(payments)",
+                "mismatches": int(mismatch),
+                "valid": int(mismatch) == 0,
+            }
+        )
 
-# fact_reviews: review_score should be 1-5
-invalid = conn.execute(
-    "SELECT COUNT(*) FROM analytics.fact_reviews WHERE valid_review_score IS NULL AND review_score IS NOT NULL"
-).fetchone()[0]
-results["transforms"].append(
-    {
-        "check": "fact_reviews review_score in 1-5",
-        "invalid_scores": invalid,
-        "valid": invalid == 0,
-    }
-)
+        mismatch = conn.execute("""
+            SELECT COUNT(*) FROM analytics.fact_orders fo
+            WHERE fo.order_items_count != COALESCE((
+                SELECT COUNT(*) FROM staging.order_items oi WHERE oi.order_id = fo.order_id
+            ), 0)
+            """).fetchone()[0]
+        results["transforms"].append(
+            {
+                "check": "fact_orders.order_items_count == count(order_items)",
+                "mismatches": int(mismatch),
+                "valid": int(mismatch) == 0,
+            }
+        )
 
-# dim_customers: total_orders should match count of orders per customer
-mismatch = conn.execute("""
-    SELECT COUNT(*) FROM analytics.dim_customers dc
-    WHERE dc.total_orders != (
-        SELECT COUNT(*) FROM staging.orders o WHERE o.customer_id = dc.customer_id
-    )
-""").fetchone()[0]
-results["transforms"].append(
-    {
-        "check": "dim_customers.total_orders == count(orders)",
-        "mismatches": mismatch,
-        "valid": mismatch == 0,
-    }
-)
+        total, distinct = conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT (order_id, order_item_id)) FROM analytics.fact_order_items"
+        ).fetchone()
+        results["transforms"].append(
+            {
+                "check": "fact_order_items grain unique",
+                "total_rows": int(total),
+                "distinct_keys": int(distinct),
+                "valid": int(total) == int(distinct) and int(total) > 0,
+            }
+        )
 
-# fact_delivery: delivery_time_days should match fact_orders
-mismatch = conn.execute("""
-    SELECT COUNT(*) FROM analytics.fact_delivery fd
-    JOIN analytics.fact_orders fo ON fd.order_id = fo.order_id
-    WHERE fd.delivery_time_days IS DISTINCT FROM fo.delivery_time_days
-""").fetchone()[0]
-results["transforms"].append(
-    {
-        "check": "fact_delivery.delivery_time_days == fact_orders.delivery_time_days",
-        "mismatches": mismatch,
-        "valid": mismatch == 0,
-    }
-)
+        bad_flag = conn.execute("""
+            SELECT COUNT(*) FROM analytics.fact_reviews
+            WHERE (valid_review_score IS NULL AND TRY_CAST(review_score AS INTEGER) BETWEEN 1 AND 5)
+               OR (valid_review_score IS NOT NULL AND valid_review_score NOT BETWEEN 1 AND 5)
+            """).fetchone()[0]
+        results["transforms"].append(
+            {
+                "check": "fact_reviews valid_review_score consistent with 1-5 range",
+                "invalid_scores": int(bad_flag),
+                "valid": int(bad_flag) == 0,
+            }
+        )
 
-conn.close()
+        mismatch = conn.execute("""
+            WITH cust_orders AS (
+                SELECT c.customer_unique_id, COUNT(DISTINCT o.order_id) AS expected_orders
+                FROM staging.customers c
+                JOIN staging.orders o ON c.customer_id = o.customer_id
+                GROUP BY c.customer_unique_id
+            )
+            SELECT COUNT(*)
+            FROM analytics.dim_customers dc
+            LEFT JOIN cust_orders co ON dc.customer_unique_id = co.customer_unique_id
+            WHERE dc.total_orders != COALESCE(co.expected_orders, 0)
+            """).fetchone()[0]
+        results["transforms"].append(
+            {
+                "check": "dim_customers.total_orders == distinct orders per customer_unique_id",
+                "mismatches": int(mismatch),
+                "valid": int(mismatch) == 0,
+            }
+        )
 
-with open(OUT, "w", encoding="utf-8") as f:
-    json.dump(results, f, indent=4)
+        mismatch = conn.execute("""
+            SELECT COUNT(*) FROM analytics.fact_delivery fd
+            JOIN analytics.fact_orders fo ON fd.order_id = fo.order_id
+            WHERE fd.delivery_time_days IS DISTINCT FROM fo.delivery_time_days
+            """).fetchone()[0]
+        results["transforms"].append(
+            {
+                "check": "fact_delivery.delivery_time_days == fact_orders.delivery_time_days",
+                "mismatches": int(mismatch),
+                "valid": int(mismatch) == 0,
+            }
+        )
 
-print(json.dumps(results, indent=2))
-print(f"\nValidation results saved to {OUT}")
+        geo_coverage = conn.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM staging.orders) AS staging_orders,
+                (SELECT COUNT(*) FROM staging.orders o JOIN staging.customers c ON o.customer_id=c.customer_id) AS mapped_orders,
+                (SELECT COUNT(*) FROM analytics.fact_orders) AS fact_orders
+            """).fetchone()
+        stg, mapped, fact = [int(x) for x in geo_coverage]
+        results["transforms"].append(
+            {
+                "check": "geographic order mapping coverage via staging.customers.customer_id",
+                "staging_orders": stg,
+                "mapped_orders": mapped,
+                "fact_orders": fact,
+                "valid": stg == mapped == fact,
+            }
+        )
+
+        for dim, key in [("dim_products", "product_id"), ("dim_sellers", "seller_id")]:
+            mismatch = conn.execute(f"""
+                WITH expected AS (
+                    SELECT {key}, COUNT(*) AS n FROM staging.order_items GROUP BY {key}
+                )
+                SELECT COUNT(*)
+                FROM analytics.{dim} d
+                LEFT JOIN expected e ON d.{key} = e.{key}
+                WHERE d.total_items_sold != COALESCE(e.n, 0)
+                """).fetchone()[0]
+            results["transforms"].append(
+                {
+                    "check": f"{dim}.total_items_sold == count(order_items) by {key}",
+                    "mismatches": int(mismatch),
+                    "valid": int(mismatch) == 0,
+                }
+            )
+
+        ok = all(r.get("valid") for r in results["grain"]) and all(
+            r.get("valid") for r in results["transforms"]
+        )
+    finally:
+        conn.close()
+
+    out_path.write_text(json.dumps(results, indent=4), encoding="utf-8")
+    print(json.dumps(results, indent=2))
+    print(f"\nValidation results saved to {out_path}")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

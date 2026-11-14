@@ -7,6 +7,7 @@
             ],
             "total_rows": 99441,
             "distinct_keys": 99441,
+            "null_key_rows": 0,
             "valid": true
         },
         {
@@ -17,6 +18,7 @@
             ],
             "total_rows": 112650,
             "distinct_keys": 112650,
+            "null_key_rows": 0,
             "valid": true
         },
         {
@@ -26,6 +28,7 @@
             ],
             "total_rows": 96096,
             "distinct_keys": 96096,
+            "null_key_rows": 0,
             "valid": true
         },
         {
@@ -35,6 +38,7 @@
             ],
             "total_rows": 32951,
             "distinct_keys": 32951,
+            "null_key_rows": 0,
             "valid": true
         },
         {
@@ -44,6 +48,7 @@
             ],
             "total_rows": 3095,
             "distinct_keys": 3095,
+            "null_key_rows": 0,
             "valid": true
         },
         {
@@ -54,15 +59,18 @@
             ],
             "total_rows": 103886,
             "distinct_keys": 103886,
+            "null_key_rows": 0,
             "valid": true
         },
         {
             "table": "fact_reviews",
             "keys": [
-                "review_id"
+                "review_id",
+                "order_id"
             ],
-            "total_rows": 98410,
-            "distinct_keys": 98410,
+            "total_rows": 99224,
+            "distinct_keys": 99224,
+            "null_key_rows": 0,
             "valid": true
         },
         {
@@ -72,6 +80,7 @@
             ],
             "total_rows": 99441,
             "distinct_keys": 99441,
+            "null_key_rows": 0,
             "valid": true
         }
     ],
@@ -93,17 +102,34 @@
             "valid": true
         },
         {
-            "check": "fact_reviews review_score in 1-5",
+            "check": "fact_reviews valid_review_score consistent with 1-5 range",
             "invalid_scores": 0,
             "valid": true
         },
         {
-            "check": "dim_customers.total_orders == count(orders)",
+            "check": "dim_customers.total_orders == distinct orders per customer_unique_id",
             "mismatches": 0,
             "valid": true
         },
         {
             "check": "fact_delivery.delivery_time_days == fact_orders.delivery_time_days",
+            "mismatches": 0,
+            "valid": true
+        },
+        {
+            "check": "geographic order mapping coverage via staging.customers.customer_id",
+            "staging_orders": 99441,
+            "mapped_orders": 99441,
+            "fact_orders": 99441,
+            "valid": true
+        },
+        {
+            "check": "dim_products.total_items_sold == count(order_items) by product_id",
+            "mismatches": 0,
+            "valid": true
+        },
+        {
+            "check": "dim_sellers.total_items_sold == count(order_items) by seller_id",
             "mismatches": 0,
             "valid": true
         }

@@ -3,339 +3,156 @@
 ## Olist Consumer Intelligence & Market Intelligence Assessment
 
 **Project ID:** OLIST-CI-02
-**Architecture Version:** 1.0
-**Status:** Draft
+**Architecture Version:** 1.2
+**Status:** Aligned with current implementation (branch `fix/olist-analytical-integrity`, validated 2026-11-14)
 
 ---
 
 ## 1. Architecture Overview
 
-This document defines the end-to-end system architecture for the Olist Consumer Intelligence project. The system ingests raw Olist e-commerce datasets, transforms them into analysis-ready structures, and delivers reproducible analytical outputs across four intelligence domains.
+This project implements a reproducible, local analytical pipeline over the Brazilian E-Commerce Public Dataset by Olist (Kaggle, observed 2016-09-04 to 2018-10-17). It ingests raw CSVs into DuckDB, builds typed staging and grain-validated analytics tables, runs data quality/analytics/integrity checks, exports findings and charts, and supports notebook/report consumption.
 
-The architecture is designed around three principles:
-
-1. **Reproducibility** — every output can be regenerated from raw data with a single command.
-2. **Analytical grain integrity** — each dataset preserves its correct unit of analysis to prevent double counting.
-3. **Separation of concerns** — ingestion, transformation, analysis, and reporting are isolated modules.
+**Principles (implemented):**
+1. **Raw immutability:** CSVs in `data/raw/` are read-only inputs; transformations occur in DuckDB schemas via SQL/scripts.
+2. **Analytical grain integrity:** every analytics fact/dimension has declared keys in `src/config.py` and is validated (`src/grain_checks.py`, `scripts/validate_analytics.py`).
+3. **Reproducibility with explicit rebuild semantics:** pipeline stages are scriptable; full raw rebuild is explicit (`--overwrite`) and can target an isolated `--db-path`.
+4. **Governed metrics:** KPI definitions/filters/grains are governed by `docs/olist/03_kpi_definitions.md` v1.1.
 
 ---
 
 ## 2. Technology Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Language | Python 3.11+ | Primary implementation language |
-| Analytical DB | DuckDB | Embedded columnar SQL engine for analytical queries |
-| Notebook Environment | JupyterLab | Interactive analysis and narrative reporting |
-| Data Manipulation | pandas, Polars | DataFrame transformations |
-| Visualization | Plotly, Matplotlib, Seaborn | Static and interactive charts |
-| Statistical Testing | SciPy, statsmodels | Hypothesis testing and correlation analysis |
-| Configuration | PyYAML, python-dotenv | Environment and pipeline configuration |
-| Data Validation | pandera | Schema and data quality assertions |
-| Packaging | pyproject.toml (uv/pip) | Dependency management |
-
-**Why DuckDB:** DuckDB provides a single-file analytical database that supports full SQL, reads CSV/Parquet directly, and handles datasets of this scale (hundreds of thousands of rows) efficiently without requiring a database server. It is ideal for reproducible, portable analysis.
+| Layer | Technology | Purpose (actual) |
+|-------|-----------|------------------|
+| Language | Python 3.11+ | Pipeline, validation, exports, tests |
+| Analytical DB | DuckDB (embedded file) | `db/olist.duckdb` with `raw`, `staging`, `analytics` schemas |
+| SQL | DuckDB SQL | `queries/01_staging.sql`, `queries/02_analytics.sql` (idempotent CREATE OR REPLACE) |
+| Data/analysis | pandas, NumPy, SciPy/statsmodels (deps), matplotlib/plotly/seaborn (deps) | Exports, correlations, charts; notebooks |
+| Notebooks | Jupyter (`.ipynb`, nbconvert/nbclient available in env) | Domain analysis `notebooks/00-05` |
+| Quality | pytest, ruff, black, mypy | Automated tests, lint, format, type checks |
+| Packaging | `pyproject.toml` | Dependencies and project metadata |
 
 ---
 
-## 3. System Architecture Diagram
+## 3. Actual Repository Structure (relevant)
+
+```text
+.
+├─ data/raw/                      # 9 Olist CSVs (gitignored)
+├─ db/olist.duckdb                # Default warehouse (gitignored)
+├─ queries/
+│  ├─ 01_staging.sql              # raw -> staging
+│  └─ 02_analytics.sql            # staging -> analytics
+├─ src/
+│  ├─ __init__.py
+│  ├─ config.py                   # Paths, source files, schemas, grain definitions, constants
+│  ├─ db.py                       # Connection/schema helpers (get_connection supports db_path, read_only)
+│  ├─ ingest.py                   # CSV -> raw tables (explicit overwrite behavior)
+│  ├─ validate.py                 # Raw DQ checks; writes outputs/findings/data_quality.json
+│  ├─ transform.py                # Runs staging + analytics SQL (transform_all)
+│  ├─ grain_checks.py             # Analytics grain assertions
+│  └─ pipeline.py                 # CLI orchestration (python -m src.pipeline)
+├─ scripts/
+│  ├─ profile_olist.py            # Dataset profiling (docs/olist/profile/*)
+│  ├─ validate_analytics.py       # Grain + transform reconciliation (--db-path, --out)
+│  ├─ check_integrity.py          # Referential integrity (--db-path, --out)
+│  └─ export_analysis.py          # Findings/CSVs/charts; optional docs copy (--db-path, --skip-copy-docs, etc.)
+├─ notebooks/00-05_*.ipynb        # Executed analysis notebooks (see notebook execution results)
+├─ outputs/findings|charts|reports (gitignored by default; regenerable)
+├─ docs/                          # Charter, research, KPIs, data dictionary, architecture, DoD, reports/assets, olist/*
+├─ tests/
+│  ├─ test_pipeline_integrity.py  # DB-backed integrity/KPI checks (skips if artifacts missing)
+│  └─ test_unit_synthetic.py      # Synthetic unit tests (no real dataset required)
+└─ pyproject.toml, README.md, .gitignore, .github/workflows/ci.yml
+```
+
+Note: `src/viz/`, `manifest.json`, and separate per-domain `queries/01_consumer_behavior.sql` files are not part of the current implementation; analysis SQL is consolidated in `queries/02_analytics.sql` and domain exports in `scripts/export_analysis.py`.
+
+---
+
+## 4. Data Flow and Pipeline
 
 ```mermaid
 flowchart TD
-    subgraph Sources[Data Sources]
-        K[Kaggle Olist Dataset]
-    end
-
-    subgraph Raw[Raw Layer]
-        R1[olist_orders]
-        R2[olist_order_items]
-        R3[olist_customers]
-        R4[olist_products]
-        R5[olist_sellers]
-        R6[olist_order_payments]
-        R7[olist_order_reviews]
-        R8[olist_geolocation]
-        R9[product_category_translation]
-    end
-
-    subgraph Ingest[Ingestion Layer]
-        I1[ingest.py]
-        I2[validate.py]
-    end
-
-    subgraph Warehouse[DuckDB Warehouse]
-        W1[raw schema]
-        W2[staging schema]
-        W3[analytics schema]
-    end
-
-    subgraph ETL[ETL Layer]
-        E1[transform.py]
-        E2[grain_checks.py]
-    end
-
-    subgraph Analytics[Analytics Layer]
-        A1[Consumer Behavior]
-        A2[Experience Intelligence]
-        A3[Product Category]
-        A4[Geographic]
-    end
-
-    subgraph Outputs[Outputs]
-        O1[Findings JSON]
-        O2[Charts PNG/HTML]
-        O3[Executive Report]
-        O4[Dashboard Data]
-    end
-
-    K --> R1 & R2 & R3 & R4 & R5 & R6 & R7 & R8 & R9
-    R1 & R2 & R3 & R4 & R5 & R6 & R7 & R8 & R9 --> I1
-    I1 --> I2
-    I2 --> W1
-    W1 --> E1
-    E1 --> E2
-    E2 --> W2
-    W2 --> W3
-    W3 --> A1 & A2 & A3 & A4
-    A1 & A2 & A3 & A4 --> O1 & O2 & O3 & O4
+    A[data/raw/*.csv] --> B[ingest: src.ingest -> raw.*]
+    B --> C[validate: src.validate -> outputs/findings/data_quality.json]
+    C --> D[transform: queries/01_staging.sql -> staging.*]
+    D --> E[transform: queries/02_analytics.sql -> analytics.*]
+    E --> F[grain-checks: src.grain_checks]
+    F --> G[analytics-validate: scripts/validate_analytics.py -> docs/olist/analytics_validation.json]
+    G --> H[integrity: scripts/check_integrity.py -> docs/olist/integrity_check.json]
+    H --> I[export: scripts/export_analysis.py -> findings/charts/reports/docs assets]
+    E --> J[notebooks 00-05 read DuckDB analytics/staging]
 ```
 
----
+### 4.1 Pipeline CLI (`python -m src.pipeline <command>`)
 
-## 4. Data Flow
+| Command | Actual behavior | `--db-path` | `--overwrite` |
+|---|---|---:|---:|
+| `ingest` | Loads 9 CSVs from `data/raw/` into `raw.*`. Fails if required files missing. If any raw table exists and overwrite is false, raises error (no implicit destructive rebuild). | Yes | Yes (replaces raw tables) |
+| `validate` | Runs raw data quality checks and writes `outputs/findings/data_quality.json` (project findings path). | Yes (connection) | n/a |
+| `transform` | Executes `01_staging.sql` then `02_analytics.sql` (CREATE OR REPLACE). | Yes | n/a |
+| `grain-checks` | Validates analytics grains/keys per `GRAIN_DEFINITIONS`. | Yes | n/a |
+| `analytics-validate` | Runs `scripts/validate_analytics.py` (grain + transform reconciliations). With non-default db-path, pipeline writes to isolated artifact path. | Yes (script) | n/a |
+| `integrity` | Runs `scripts/check_integrity.py`. With non-default db-path, pipeline writes to isolated artifact path. | Yes (script) | n/a |
+| `export` | Runs `scripts/export_analysis.py` (findings/CSVs/charts; copies curated docs assets unless `--skip-copy-docs`). | Yes (script) | n/a |
+| `run` | `ingest -> validate -> transform -> grain-checks -> analytics-validate -> integrity -> export`. When `--db-path` is non-default, validation/export artifacts are written under `db/.<stem>_artifacts/` with `--skip-copy-docs` to avoid overwriting main project outputs. | Yes | Yes (ingest stage) |
 
-```mermaid
-flowchart LR
-    A[Download CSVs] --> B[Ingest to DuckDB raw]
-    B --> C[Validate schema and quality]
-    C --> D[Transform to staging]
-    D --> E[Build analytics tables]
-    E --> F[Run domain analyses]
-    F --> G[Export findings and charts]
-    G --> H[Generate executive report]
-```
-
-### 4.1 Stage Definitions
-
-| Stage | Input | Output | Grain |
-|-------|-------|--------|-------|
-| Raw | CSV files | `raw.*` tables | Source grain |
-| Staging | `raw.*` | `staging.*` tables | Cleaned source grain |
-| Analytics | `staging.*` | `analytics.*` tables | Analysis grain |
-| Findings | `analytics.*` | JSON + charts | Aggregated |
+**Repeatability (validated on isolated copy, 2026-11-14):** Two sequential `pipeline run --overwrite --db-path db/olist_test_pipeline.duckdb` executions completed successfully with consistent core results (raw_orders 99,441; fact_orders 99,441; gmv_payments ~16,008,872.12; fact_reviews 99,224; grains/validations/integrity PASS). Running against the same DB requires `--overwrite` for the ingest stage because raw tables persist; transform/validate/grain-check stages are idempotent in effect (SQL uses CREATE OR REPLACE).
 
 ---
 
-## 5. Analytical Data Model
+## 5. Analytical Data Model (implemented)
 
-### 5.1 Grain Definitions
+### 5.1 Grain Definitions (`src/config.py`)
 
-| Table | Grain | Key |
-|-------|-------|-----|
-| `analytics.fact_orders` | One row per order | `order_id` |
-| `analytics.fact_order_items` | One row per order item | `order_id` + `order_item_id` |
-| `analytics.dim_customers` | One row per unique customer | `customer_unique_id` |
-| `analytics.dim_products` | One row per product | `product_id` |
-| `analytics.dim_sellers` | One row per seller | `seller_id` |
-| `analytics.fact_payments` | One row per payment record | `order_id` + `payment_sequential` |
-| `analytics.fact_reviews` | One row per review | `review_id` |
-| `analytics.fact_delivery` | One row per order | `order_id` |
+| Table | Grain (key) | Notes |
+|---|---|---|
+| `analytics.fact_orders` | `order_id` | Order-level attributes/values/delivery fields |
+| `analytics.fact_order_items` | (`order_id`,`order_item_id`) | Item-level price/freight/product/seller |
+| `analytics.dim_customers` | `customer_unique_id` | Aggregated over all linked orders; representative `customer_id` deterministic |
+| `analytics.dim_products` | `product_id` | `total_items_sold = COUNT(order_item_id)` |
+| `analytics.dim_sellers` | `seller_id` | `total_items_sold = COUNT(order_item_id)` |
+| `analytics.fact_payments` | (`order_id`,`payment_sequential`) | Payment rows |
+| `analytics.fact_reviews` | (`review_id`,`order_id`) | Preserves duplicate raw `review_id`s linked to different orders; deterministic dedup of exact review-order rows |
+| `analytics.fact_delivery` | `order_id` | Delivery timing/buckets/gaps |
 
-### 5.2 Star Schema Relationships
-
-```mermaid
-erDiagram
-    dim_customers ||--o{ fact_orders : places
-    dim_products ||--o{ fact_order_items : contains
-    dim_sellers ||--o{ fact_order_items : fulfills
-    fact_orders ||--o{ fact_order_items : has
-    fact_orders ||--o{ fact_payments : paid_by
-    fact_orders ||--o| fact_reviews : reviewed_by
-    fact_orders ||--o| fact_delivery : delivered_as
-```
-
-### 5.3 Key Derived Metrics
-
-| Metric | Definition | Grain |
-|--------|-----------|-------|
-| `order_value` | Sum of payment_value per order | Order |
-| `freight_value` | Sum of freight_value per order | Order |
-| `delivery_time_days` | `order_delivered_customer_date` − `order_purchase_timestamp` | Order |
-| `estimated_vs_actual_days` | `order_estimated_delivery_date` − `order_delivered_customer_date` | Order |
-| `is_repeat_customer` | Whether `customer_unique_id` has >1 order | Customer |
-| `review_score` | `review_score` from reviews | Order |
+### 5.2 Relationships / join guidance
+- `fact_orders.order_id` ↔ `fact_order_items|fact_payments|fact_reviews|fact_delivery.order_id`
+- `fact_order_items.product_id` ↔ `dim_products.product_id`; `fact_order_items.seller_id` ↔ `dim_sellers.seller_id`
+- **Order-level geographic analysis:** join `fact_orders` to `staging.customers` on `customer_id` for `customer_state` (reconciles to 99,441 orders). Do not use `dim_customers` for per-order location because it is keyed by `customer_unique_id` with a representative `customer_id`.
+- **Category review metric:** avg order-level review among orders containing the category at distinct `(order_id, category)` (not item-weighted, not causal).
 
 ---
 
-## 6. Repository Structure
+## 6. Validation, Quality, and Exports
 
-```text
-olist-consumer-intelligence/
-├── data/
-│   ├── raw/                          # Original Olist CSV files (gitignored)
-│   └── processed/                    # Exported Parquet/CSV outputs (gitignored)
-├── db/
-│   └── olist.duckdb                  # DuckDB database file (gitignored)
-├── notebooks/
-│   ├── 00_data_quality.ipynb         # Data quality assessment
-│   ├── 01_consumer_behavior.ipynb    # RQ1
-│   ├── 02_experience_intelligence.ipynb  # RQ2
-│   ├── 03_product_category.ipynb     # RQ3
-│   ├── 04_geographic_intelligence.ipynb  # RQ4
-│   └── 05_synthesis.ipynb            # Cross-domain synthesis
-├── src/
-│   ├── __init__.py
-│   ├── config.py                     # Paths and constants
-│   ├── db.py                         # DuckDB connection helpers
-│   ├── ingest.py                     # CSV → DuckDB raw
-│   ├── validate.py                   # Data quality checks
-│   ├── transform.py                  # raw → staging → analytics
-│   ├── grain_checks.py               # Grain integrity assertions
-│   └── viz/
-│       ├── __init__.py
-│       └── charts.py                 # Reusable chart functions
-├── queries/
-│   ├── 01_consumer_behavior.sql
-│   ├── 02_experience_intelligence.sql
-│   ├── 03_product_category.sql
-│   └── 04_geographic.sql
-├── outputs/
-│   ├── findings/                     # JSON findings per domain
-│   ├── charts/                       # Exported charts
-│   └── reports/                      # Executive report
-├── docs/
-│   ├── project_charter.md
-│   ├── research_design.md
-│   ├── system_architecture.md
-│   └── data_dictionary.md
-├── tests/
-│   └── test_grain_checks.py
-├── pyproject.toml
-├── .gitignore
-└── README.md
-```
+- **Raw DQ (`src/validate.py`):** row counts, null rates, PK checks (raw reviews PK not unique as observed), referential integrity (NOT EXISTS over non-null FKs), date ranges, review score validity (1–5). Output: `outputs/findings/data_quality.json`.
+- **Analytics validation (`scripts/validate_analytics.py`):** grain non-empty/unique/non-null keys + transform reconciliations (payment totals, item counts, review score consistency, customer/product/seller aggregates, delivery consistency, geographic coverage). Output: `docs/olist/analytics_validation.json`.
+- **Integrity (`scripts/check_integrity.py`):** raw referential integrity checks. Output: `docs/olist/integrity_check.json`.
+- **Exports (`scripts/export_analysis.py`):** regenerates domain findings/CSVs/charts and (by default) copies curated artifacts to `docs/assets`, `docs/executive_summary.md`, `docs/strategic_recommendations.md`. Key metrics follow KPI governance and explicitly document grain/filter/method (Pearson and Spearman computed separately; monthly spine marks boundary months).
 
 ---
 
-## 7. Component Design
+## 7. DuckDB Concurrency and Locking (observed)
 
-### 7.1 Ingestion Module (`src/ingest.py`)
+DuckDB file access can be blocked by another process (e.g. open notebook kernel, prior Python process, parallel writers). Observed during remediation: `IO Error: Cannot open file ... used by another process`.
 
-**Responsibility:** Load raw CSV files into the `raw` schema of DuckDB.
-
-**Functions:**
-- `ingest_all()` — iterate over expected CSV files and load each into `raw.<table>`.
-- `ingest_one(csv_path, table_name)` — load a single CSV with schema inference.
-- `list_source_files()` — verify all 9 expected source files are present.
-
-**Design notes:**
-- Uses DuckDB `read_csv_auto` for initial load.
-- Stores original column names to preserve traceability.
-- Adds `_ingested_at` timestamp for audit.
-
-### 7.2 Validation Module (`src/validate.py`)
-
-**Responsibility:** Assess data quality and referential integrity.
-
-**Checks:**
-- Row counts per table.
-- Null rates for critical columns.
-- Primary key uniqueness.
-- Referential integrity (e.g., every `order_id` in items exists in orders).
-- Date range sanity (2016–2018).
-- Review score range (1–5).
-
-**Output:** `outputs/findings/data_quality.json`
-
-### 7.3 Transformation Module (`src/transform.py`)
-
-**Responsibility:** Build `staging` and `analytics` schemas.
-
-**Steps:**
-1. Clean: trim strings, parse dates, normalize categories.
-2. Conform: standardize column names and types.
-3. Derive: compute `delivery_time_days`, `order_value`, etc.
-4. Aggregate: build fact and dimension tables at correct grain.
-
-**Design notes:**
-- Each transformation is a pure SQL statement stored in `queries/`.
-- Transformations are idempotent — re-running produces identical results.
-
-### 7.4 Grain Checks (`src/grain_checks.py`)
-
-**Responsibility:** Assert that each analytics table has the expected grain.
-
-**Example assertions:**
-- `fact_orders` has unique `order_id`.
-- `fact_order_items` has unique (`order_id`, `order_item_id`).
-- `dim_customers` has unique `customer_unique_id`.
-- Sum of item-level `order_value` equals order-level `order_value`.
-
-### 7.5 Visualization Module (`src/viz/charts.py`)
-
-**Responsibility:** Provide reusable, consistent chart functions.
-
-**Functions:**
-- `plot_distribution(df, column, title)`
-- `plot_correlation(x, y, title)`
-- `plot_category_comparison(df, category, metric)`
-- `plot_geographic_map(df, region_col, metric)`
-
-**Design notes:**
-- All charts saved to `outputs/charts/` as both PNG and HTML.
-- Consistent color palette and sizing.
+**Safe protocol:** run pipeline/validation/export/notebook execution sequentially; close connections (notebooks include `conn.close()`); avoid parallel writers to the same DB file; ensure no kernels/processes hold the file before overwrite/rebuild. For isolated rebuild tests, use a separate `--db-path` copy.
 
 ---
 
-## 8. Reproducibility Strategy
+## 8. Security, Data Handling, and Licensing
 
-| Concern | Approach |
-|---------|----------|
-| Environment | `pyproject.toml` pins all dependencies |
-| Data | Raw CSVs checksummed in `manifest.json` |
-| Pipeline | Single entry point: `python -m src.pipeline run` |
-| Randomness | Fixed random seeds where sampling is used |
-| Outputs | Deterministic file naming with run timestamp |
-
-### 8.1 Pipeline Entry Point
-
-```bash
-# Full pipeline
-python -m src.pipeline run
-
-# Individual stages
-python -m src.pipeline ingest
-python -m src.pipeline validate
-python -m src.pipeline transform
-python -m src.pipeline analyze
-python -m src.pipeline report
-```
+- Raw data, DuckDB files, and regenerable outputs are gitignored by default (`data/raw/`, `db/`, `outputs/`); no secrets committed.
+- Dataset: *Brazilian E-Commerce Public Dataset by Olist* (Kaggle). **Dataset listing license: VERIFIED ON KAGGLE (2026-11-14)** as CC BY-NC-SA 4.0 on https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce (canonical: https://creativecommons.org/licenses/by-nc-sa/4.0/). **Legal interpretation of the intended portfolio/job-application use: NOT INDEPENDENTLY RESOLVED** (context-specific). Project source code license is not declared in-repo (no `LICENSE` file observed/granted). See `docs/dataset_license_notes.md`.
+- Data is anonymized by publisher; do not attempt re-identification.
 
 ---
 
-## 9. Security and Data Handling
+## 9. Known Limitations (current)
 
-- Raw data files are gitignored and never committed.
-- No credentials or secrets are stored in the repository.
-- The dataset is publicly available under Olist's Kaggle license; attribution is documented in `docs/data_dictionary.md`.
-- No personally identifiable information beyond what is in the public dataset is processed.
-
----
-
-## 10. Extension Points
-
-| Future need | Extension point |
-|-------------|----------------|
-| Larger datasets | Swap DuckDB for ClickHouse or BigQuery via `src/db.py` |
-| Automated reporting | Add `src/report/` with Jinja2 templates |
-| Interactive dashboard | Add Streamlit app reading from `outputs/` |
-| Scheduled runs | Add GitHub Actions workflow calling `src.pipeline` |
-| Additional data sources | Add new loaders in `src/ingest.py` |
-
----
-
-## 11. Open Questions
-
-1. Should the final deliverable include an interactive dashboard, or is a static report sufficient?
-2. Should geographic analysis use state-level or city-level granularity?
-3. Should the executive report be Markdown, PDF, or both?
+- `pipeline run` with `--db-path` isolates analytics/integrity/export artifacts (after fix) but `validate` stage writes raw DQ findings to the default project findings path; interpret isolated-run raw DQ artifact accordingly.
+- Full `pipeline run --overwrite` on the default `db/olist.duckdb` was **not** executed in this session to avoid destructive rebuild of the working DB; repeatability was demonstrated on an isolated copy.
+- Notebooks were executed top-to-bottom in this environment (2026-11-14) with bootstrap/PYTHONPATH handling; nbformat warnings and a benign ZMQ teardown assertion appeared in stderr for some runs but exit codes were 0 and outputs/cells executed.
+- Dataset listing license is verified on Kaggle (2026-11-14, CC BY-NC-SA 4.0); legal interpretation for intended use and project source-code license decision remain pending owner authorization (see `docs/dataset_license_notes.md`).
