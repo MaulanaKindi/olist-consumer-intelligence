@@ -1,6 +1,6 @@
 # Strategic Opportunity & Recommendation Matrix
 
-**Project:** OLIST-CI-02 | **KPI basis:** `docs/olist/03_kpi_definitions.md` v1.1 (approved) | **Evidence:** `outputs/findings/analysis_findings.json`
+**Project:** Olist Consumer & Marketplace Intelligence (OLIST-CI-02) | **KPI basis:** `docs/olist/03_kpi_definitions.md` v1.1 (approved) | **Evidence:** `outputs/findings/analysis_findings.json`
 
 | Priority | Observed finding (evidence, grain/filter) | Business implication | Recommendation | Owner (stakeholder) | Limitations |
 |---|---|---|---|---|---|

@@ -1,6 +1,6 @@
 # System Architecture
 
-## Olist Consumer Intelligence & Market Intelligence Assessment
+## Olist Consumer & Marketplace Intelligence
 
 **Project ID:** OLIST-CI-02
 **Architecture Version:** 1.2
@@ -127,10 +127,18 @@ flowchart TD
 
 ## 6. Validation, Quality, and Exports
 
-- **Raw DQ (`src/validate.py`):** row counts, null rates, PK checks (raw reviews PK not unique as observed), referential integrity (NOT EXISTS over non-null FKs), date ranges, review score validity (1–5). Output: `outputs/findings/data_quality.json`.
+- **Raw DQ (`src/validate.py`):** row counts, null rates, PK checks (raw reviews PK not unique as observed), referential integrity (NOT EXISTS over non-null FKs), date ranges, review score validity (1â€“5). Output: `outputs/findings/data_quality.json`.
 - **Analytics validation (`scripts/validate_analytics.py`):** grain non-empty/unique/non-null keys + transform reconciliations (payment totals, item counts, review score consistency, customer/product/seller aggregates, delivery consistency, geographic coverage). Output: `docs/olist/analytics_validation.json`.
 - **Integrity (`scripts/check_integrity.py`):** raw referential integrity checks. Output: `docs/olist/integrity_check.json`.
-- **Exports (`scripts/export_analysis.py`):** regenerates domain findings/CSVs/charts and (by default) copies curated artifacts to `docs/assets`, `docs/executive_summary.md`, `docs/strategic_recommendations.md`. Key metrics follow KPI governance and explicitly document grain/filter/method (Pearson and Spearman computed separately; monthly spine marks boundary months).
+- **Exports (`scripts/export_analysis.py`):** regenerates analytical findings/CSVs/charts from DuckDB. Curation/mirroring (default, unless `--skip-copy-docs`):
+  - **Charts (generated outputs → tracked docs):** copies generated chart PNGs from `charts_dir` (`outputs/charts/`) to `docs/assets/` (`monthly_orders.png`, `review_by_delivery_bucket.png`, `revenue_by_state.png`) when present.
+  - **Portfolio report mirrors (tracked canonical docs → gitignored outputs):** mirrors canonical editorial documents **one-way** from docs to `reports_dir` (`outputs/reports/`):
+    - Canonical documents live in `docs/`: `docs/executive_summary.md`, `docs/strategic_recommendations.md`.
+    - Mirrors live in `outputs/reports/`: `outputs/reports/executive_intelligence_report.md`, `outputs/reports/strategic_opportunity_matrix.md`.
+    - Synchronization direction: `docs -> outputs/reports` only. Canonical report sources are version-controlled in `docs/`; mirrors are derived/gitignored and **must never overwrite canonical docs**. The export script does **not** generate markdown report content and never copies `outputs/reports/*` → `docs/*`.
+  - If a canonical source is missing: no empty mirror is created, no stale mirror is used as fallback or deleted, an item warning is emitted for that report, and an aggregate warning identifies incomplete report synchronization. Existing mirrors remain unchanged. Export and pipeline retain successful exit behavior (exit code 0) in this non-fatal condition, and analytical export (findings/CSVs/charts and other curation) continues independently.
+  - `--skip-copy-docs` skips both chart curation and report mirroring (isolated/non-default DB runs pass this to avoid touching main project artifacts). Custom `--charts-dir`, `--docs-assets-dir`, `--reports-dir`, `--docs-exec`, and `--docs-strat` paths are respected.
+- Key metrics follow KPI governance and explicitly document grain/filter/method (Pearson and Spearman computed separately; monthly spine marks boundary months).
 
 ---
 

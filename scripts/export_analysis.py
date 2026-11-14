@@ -45,6 +45,35 @@ def copy_if_exists(src: Path, dst: Path) -> None:
         dst.write_bytes(src.read_bytes())
 
 
+def sync_portfolio_reports(docs_exec: Path, docs_strat: Path, reports_dir: Path) -> dict[str, bool]:
+    """Mirror canonical report docs into outputs/reports (docs -> outputs only).
+
+    Canonical sources: docs/executive_summary.md, docs/strategic_recommendations.md.
+    Mirrors: outputs/reports/executive_intelligence_report.md,
+    outputs/reports/strategic_opportunity_matrix.md.
+    Never copies outputs/reports -> docs.
+    """
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    status: dict[str, bool] = {}
+    pairs = [
+        ("executive", docs_exec, reports_dir / "executive_intelligence_report.md"),
+        ("strategic", docs_strat, reports_dir / "strategic_opportunity_matrix.md"),
+    ]
+    for name, src, dst in pairs:
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            status[name] = True
+        else:
+            print(
+                f"WARNING: canonical report source missing ({src}); "
+                f"report synchronization incomplete for {name}; "
+                "existing mirror left unchanged and not used as fallback."
+            )
+            status[name] = False
+    return status
+
+
 def main(argv: list[str] | None = None) -> None:
     import argparse
 
@@ -475,6 +504,7 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         # Copy curated portfolio artifacts (skip when testing isolated DB)
+        # --skip-copy-docs skips chart curation and report mirroring.
         if not args.skip_copy_docs:
             for name in [
                 "monthly_orders.png",
@@ -482,8 +512,14 @@ def main(argv: list[str] | None = None) -> None:
                 "revenue_by_state.png",
             ]:
                 copy_if_exists(charts_dir / name, docs_assets / name)
-            copy_if_exists(reports_dir / "executive_intelligence_report.md", docs_exec)
-            copy_if_exists(reports_dir / "strategic_opportunity_matrix.md", docs_strat)
+            report_sync = sync_portfolio_reports(docs_exec, docs_strat, reports_dir)
+            if not all(report_sync.values()):
+                failed = [name for name, ok in report_sync.items() if not ok]
+                print(
+                    "WARNING: Portfolio report synchronization incomplete: "
+                    + ", ".join(failed)
+                    + ". Canonical docs remain authoritative; existing mirrors were not used as fallback."
+                )
 
         print("exported", len(findings), "domains")
     finally:

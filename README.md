@@ -1,6 +1,8 @@
-# Olist Consumer Intelligence & Market Intelligence Assessment
+# Olist Consumer & Marketplace Intelligence
 
-Evidence-based consumer and marketplace intelligence analysis of the **Brazilian E-Commerce Public Dataset by Olist** (observed **2016-09-04 to 2018-10-17**, ~100k orders). Built as a reproducible portfolio project for market intelligence: clear business questions, approved KPI governance, validated pipeline, and decision-oriented recommendations.
+*Short name: Olist Intelligence*
+
+An analytical portfolio examining consumer behavior, marketplace performance, seller dynamics, and operational patterns using the Brazilian Olist e-commerce dataset (observed **2016-09-04 to 2018-10-17**, ~100k orders). Positioned as a **Consumer & Marketplace Intelligence analytical portfolio** (evidence-based consumer and marketplace intelligence; not a complete Competitive Intelligence study) with clear business questions, approved KPI governance, a validated pipeline, and decision-oriented recommendations.
 
 **Source:** [Olist Brazilian E-Commerce Dataset (Kaggle)](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) | **Project:** OLIST-CI-02 | **Primary audience:** E-commerce marketplace management
 
@@ -72,6 +74,8 @@ olist-consumer-intelligence/
 **Prerequisites:** Python 3.11+, dependencies in `pyproject.toml` (`pip install -e .[dev]` or `pip install -r requirements-lock.txt` for a pinned environment snapshot), Kaggle Olist CSVs in `data/raw/` (see `src/config.py`). CI runs lint/format/type/test via `.github/workflows/ci.yml`.
 
 **Tests (clean checkout):** the default `pytest` suite is synthetic and uses temporary databases/fixtures (no local `db/` or `outputs/findings/` artifacts required). Three optional real-dataset acceptance tests are skipped unless `OLIST_RUN_REAL_DATASET_TESTS=1` and the required local artifacts exist; a run reporting skipped tests must not be described as "all tests passed."
+
+**Portfolio reports (source of truth):** canonical editorial documents are tracked in `docs/executive_summary.md` and `docs/strategic_recommendations.md`. On export (unless `--skip-copy-docs`), they are mirrored one-way to gitignored `outputs/reports/` (`executive_intelligence_report.md`, `strategic_opportunity_matrix.md`); generated mirrors never overwrite canonical docs. Generated chart PNGs may be curated to `docs/assets/`.
 
 ```bash
 # Quality checks (default suite: synthetic/temporary; optional real-dataset tests may be skipped)

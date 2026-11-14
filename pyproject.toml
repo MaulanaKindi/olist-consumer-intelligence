@@ -1,7 +1,7 @@
 [project]
 name = "olist-consumer-intelligence"
 version = "0.1.0"
-description = "Olist Consumer Intelligence & Market Intelligence Assessment"
+description = "Olist Consumer & Marketplace Intelligence — analytical portfolio examining consumer behavior, marketplace performance, seller dynamics, and operational patterns using the Brazilian Olist e-commerce dataset"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

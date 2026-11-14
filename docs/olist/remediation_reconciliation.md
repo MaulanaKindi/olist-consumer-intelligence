@@ -1,6 +1,6 @@
 # Remediation Reconciliation (Before / After)
 
-**Project:** OLIST-CI-02 — Olist Consumer Intelligence
+**Project:** OLIST-CI-02 — Olist Consumer & Marketplace Intelligence
 **Branch:** `fix/olist-analytical-integrity`
 **Date:** 2026-11-14
 **Evidence sources:** `docs/olist/analytics_validation.json`, `docs/olist/integrity_check.json`, `outputs/findings/analysis_findings.json`, `outputs/findings/data_quality.json`, executed notebooks `00-05`, pipeline/test runs recorded below. Baseline artifacts preserved in `backup/pre-remediation/`.

@@ -1,6 +1,6 @@
 # Definition of Done (DoD)
 
-**Project:** Olist Consumer Intelligence & Market Intelligence Assessment (OLIST-CI-02)
+**Project:** Olist Consumer & Marketplace Intelligence (OLIST-CI-02)
 **Version:** 1.1
 **Status:** Evidence-based update (branch `fix/olist-analytical-integrity`, 2026-11-14) — not fully signed off for public release
 **Applies to:** Milestones, analysis deliverables, reports, and releases in this repository.

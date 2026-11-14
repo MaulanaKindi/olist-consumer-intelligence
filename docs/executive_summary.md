@@ -1,8 +1,8 @@
 # Executive Intelligence Report
 
-**Project:** Olist Consumer Intelligence & Market Intelligence Assessment (OLIST-CI-02)  
-**Data period:** 2016-09-04 to 2018-10-17 (orders.purchase timestamp, observed)  
-**Generated from:** `db/olist.duckdb` (`raw`/`staging`/`analytics`), `outputs/findings/analysis_findings.json`  
+**Project:** Olist Consumer & Marketplace Intelligence (OLIST-CI-02)
+**Data period:** 2016-09-04 to 2018-10-17 (orders.purchase timestamp, observed)
+**Generated from:** `db/olist.duckdb` (`raw`/`staging`/`analytics`), `outputs/findings/analysis_findings.json`
 **KPI governance:** `docs/olist/03_kpi_definitions.md` v1.1 (approved). Metrics reported with source, filter, and grain.
 
 ## Scope and method

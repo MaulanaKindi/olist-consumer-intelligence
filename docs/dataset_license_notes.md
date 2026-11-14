@@ -1,7 +1,7 @@
 # Dataset License and Usage Notes
 
 **Dataset:** Brazilian E-Commerce Public Dataset by Olist (Kaggle)
-**Project:** OLIST-CI-02 (Olist Consumer Intelligence & Market Intelligence Assessment)
+**Project:** OLIST-CI-02 (Olist Consumer & Marketplace Intelligence)
 **Last reviewed:** 2026-11-14
 
 ## 1. Source (verified)
