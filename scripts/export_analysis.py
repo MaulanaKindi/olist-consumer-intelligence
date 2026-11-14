@@ -24,7 +24,7 @@ DOCS_STRAT = PROJECT_ROOT / "docs" / "strategic_recommendations.md"
 
 # Approved KPI filters (docs/olist/03_kpi_definitions.md v1.1):
 # - Volume/value/repeat/cancellation: ALL order_status, purchase time basis.
-# - avg_review_score: valid_review_score IS NOT NULL (review-order grain).
+# - avg_review_score: AVG(valid_review_score) over valid review-order records (grain review_id,order_id; pair-weighted), valid_review_score IS NOT NULL. Distinct review_id count reported separately where relevant.
 # - on_time_delivery_rate: is_delivered AND delivery_gap_days IS NOT NULL.
 # - avg_delivery_days: is_delivered AND delivery_time_days IS NOT NULL.
 # Grain/filter/source stated per metric in outputs.
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> None:
                 "source": "docs/olist/03_kpi_definitions.md",
                 "version": "1.1",
                 "status_filter_default": "all order_status",
-                "notes": "gmv_payments is payment-based order value (sum of payments). Review analyses use (review_id, order_id) grain where applicable.",
+                "notes": "gmv_payments is payment-based order value (sum of payments). avg_review_score is mean over valid review-order records (fact_reviews grain review_id,order_id, pair-weighted; 99,224 valid records, 98,410 distinct review_id); distinct-review-id mean nearly identical in observed data. Review analyses preserve review-order associations.",
             }
         }
 

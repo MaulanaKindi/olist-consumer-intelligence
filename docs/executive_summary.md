@@ -22,7 +22,7 @@
 - Status mix dominated by delivered (~96,478); other statuses present (shipped, unavailable, etc.). Trend interpretation must account for incomplete boundary months.
 
 ### 2. Experience intelligence (review-order + delivery/order grain)
-- `avg_review_score` (valid 1–5): ~4.086 (n=99,224 review-order records with valid score).
+- `avg_review_score` (valid 1–5): ~4.0864, mean over 99,224 valid **review-order records** (`fact_reviews`, grain `review_id,order_id`; 98,410 distinct `review_id`). Repeated IDs (789 groups, 814 excess) have identical score/content in observed diagnostics but unresolved source semantics; mean per distinct `review_id` is ~4.0888 (delta ~-0.00238). Primary KPI follows review-order record grain to preserve each review-order association.
 - `avg_delivery_days` (delivered with days): ~12.50 days (n=96,478). `on_time_delivery_rate` (delivered with estimate, gap >= 0): ~93.23% (89,941/96,476).
 - On-time/early avg review ~4.290 (n=89,949) vs late ~2.271 (n=6,410). Delivery buckets (chronological) show gradient: 0–3 days ~4.464 (n=6,951), 4–7 ~4.397 (n=23,730), 8–14 ~4.298 (n=37,986), 15–30 ~3.940 (n=23,485), 30+ ~2.204 (n=4,207).
 - Correlations on delivered orders with valid reviews (pandas): Pearson(delivery_time_days, review)=~-0.334, Spearman(delivery_time_days, review)=~-0.235; Pearson/Spearman(delivery_gap_days, review)=~+0.267/+0.176; freight associations weaker. Associations only.

@@ -69,11 +69,26 @@ olist-consumer-intelligence/
 
 ## Reproducibility
 
-**Prerequisites:** Python 3.11+, dependencies in `pyproject.toml` (`pip install -e .[dev]` or `pip install -r requirements-lock.txt` for a pinned environment snapshot), Kaggle Olist CSVs in `data/raw/` (see `src/config.py`). CI runs lint/format/type/test via `.github/workflows/ci.yml` (DB-dependent integrity tests skip when `db/` and `outputs/findings/` artifacts are not present).
+**Prerequisites:** Python 3.11+, dependencies in `pyproject.toml` (`pip install -e .[dev]` or `pip install -r requirements-lock.txt` for a pinned environment snapshot), Kaggle Olist CSVs in `data/raw/` (see `src/config.py`). CI runs lint/format/type/test via `.github/workflows/ci.yml`.
+
+**Tests (clean checkout):** the default `pytest` suite is synthetic and uses temporary databases/fixtures (no local `db/` or `outputs/findings/` artifacts required). Three optional real-dataset acceptance tests are skipped unless `OLIST_RUN_REAL_DATASET_TESTS=1` and the required local artifacts exist; a run reporting skipped tests must not be described as "all tests passed."
 
 ```bash
-# End-to-end pipeline (ingest -> validate -> transform -> grain-checks -> analytics-validate -> integrity -> export)
-python -m src.pipeline run --overwrite
+# Quality checks (default suite: synthetic/temporary; optional real-dataset tests may be skipped)
+python -m pytest -q
+python -m ruff check .
+python -m black --check .
+python -m mypy src --ignore-missing-imports
+
+# End-to-end pipeline
+# WARNING: runs against the configured default DB (db/olist.duckdb) unless --db-path is supplied.
+# --overwrite can rebuild/replace existing raw tables for that DB. Do not overwrite your only
+# existing database without understanding the consequences.
+# Safe isolated example (keeps default DB untouched):
+python -m src.pipeline run --overwrite --db-path db/olist_isolated.duckdb
+
+# To target the default DB explicitly (destructive rebuild of raw tables for that DB):
+# python -m src.pipeline run --overwrite
 
 # If raw tables already exist and you want to keep them, run stages individually:
 # python -m src.pipeline validate
@@ -82,12 +97,6 @@ python -m src.pipeline run --overwrite
 # python -m src.pipeline analytics-validate
 # python -m src.pipeline integrity
 # python -m src.pipeline export
-
-# Quality checks
-python -m pytest -q
-python -m ruff check .
-python -m black --check .
-python -m mypy src --ignore-missing-imports
 ```
 
 Notebooks in `notebooks/00–05` are executable top-to-bottom (set `PYTHONPATH` to project root when running outside an installed environment). Key artifacts: `docs/executive_summary.md`, `docs/strategic_recommendations.md`, `docs/assets/*.png`, and regenerable `outputs/findings/*`, `docs/olist/analytics_validation.json`, `docs/olist/integrity_check.json`.
@@ -97,6 +106,7 @@ Notebooks in `notebooks/00–05` are executable top-to-bottom (set `PYTHONPATH` 
 - **Pipeline:** `raw -> staging -> analytics` in DuckDB; raw data immutable; idempotent SQL transforms; explicit ingest rerun behavior.
 - **Validation:** Row/null/key/referential/range checks and grain/transform assertions (`outputs/findings/data_quality.json`, `docs/olist/analytics_validation.json`, `docs/olist/integrity_check.json`, `python -m src.pipeline grain-checks`).
 - **Governance:** Approved KPI definitions and filters in `docs/olist/03_kpi_definitions.md`; every metric reported with source table, filter, and grain.
+- **Review score (`avg_review_score`):** primary calculation is the mean of `valid_review_score` over valid **review-order records** (`analytics.fact_reviews`, grain `review_id,order_id`; 99,224 valid records, 98,410 distinct `review_id`). Repeated review IDs observed with identical score/content (789 groups, 814 excess occurrences) are preserved to keep each review-order association; mean per distinct `review_id` is reported separately when useful (current delta vs pair mean is negligible, ~-0.00238). Do not describe records as "unique customer reviews" without supporting source semantics.
 - **Known data notes:** Raw `reviews.review_id` has duplicate IDs linked to different orders (preserved as `review_id,order_id` pairs in analytics); `product_category_name` ~1.85% null; repeat behavior depends on `customer_unique_id` linkage and observed period. See `docs/olist/04_pitfalls.md`.
 
 ## Tech Stack
