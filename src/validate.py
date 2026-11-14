@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
 
-from .config import (
-    FINDINGS_DIR,
-    REVIEW_SCORE_MAX,
-    REVIEW_SCORE_MIN,
-)
+from .config import FINDINGS_DIR, REVIEW_SCORE_MAX, REVIEW_SCORE_MIN, SCHEMA_RAW
 from .db import row_count, table_exists
 
 
@@ -29,8 +26,8 @@ def check_row_counts(conn: duckdb.DuckDBPyConnection) -> dict[str, int]:
         "geolocation",
         "category_translation",
     ]:
-        if table_exists(conn, table):
-            counts[table] = row_count(conn, table)
+        if table_exists(conn, table, schema=SCHEMA_RAW):
+            counts[table] = row_count(conn, table, schema=SCHEMA_RAW)
     return counts
 
 
@@ -38,7 +35,7 @@ def check_null_rates(
     conn: duckdb.DuckDBPyConnection,
     table: str,
     columns: list[str],
-    schema: str = "raw",
+    schema: str = SCHEMA_RAW,
 ) -> dict[str, float]:
     """Return null rate (0-1) for each column in a table."""
     rates: dict[str, float] = {}
@@ -58,18 +55,22 @@ def check_primary_key_uniqueness(
     conn: duckdb.DuckDBPyConnection,
     table: str,
     key_columns: list[str],
-    schema: str = "raw",
+    schema: str = SCHEMA_RAW,
 ) -> bool:
-    """Check that key columns are unique in a table."""
+    """Check that key columns are unique and non-null in a table."""
     key_expr = ", ".join(key_columns)
+    null_expr = " OR ".join(f"{col} IS NULL" for col in key_columns)
     result = conn.execute(f"""
-        SELECT COUNT(*) AS total, COUNT(DISTINCT ({key_expr})) AS distinct_keys
+        SELECT
+            COUNT(*) AS total,
+            COUNT(DISTINCT ({key_expr})) AS distinct_keys,
+            SUM(CASE WHEN {null_expr} THEN 1 ELSE 0 END) AS null_keys
         FROM {schema}.{table}
         """).fetchone()
     if not result:
         return False
-    total, distinct = result
-    return bool(total == distinct)
+    total, distinct, null_keys = result
+    return bool(total == distinct and int(null_keys or 0) == 0 and int(total or 0) > 0)
 
 
 def check_referential_integrity(
@@ -78,35 +79,52 @@ def check_referential_integrity(
     child_column: str,
     parent_table: str,
     parent_column: str,
-    child_schema: str = "raw",
-    parent_schema: str = "raw",
+    child_schema: str = SCHEMA_RAW,
+    parent_schema: str = SCHEMA_RAW,
 ) -> dict[str, int | float]:
     """Check referential integrity between two tables.
 
-    Returns dict with total child rows, orphaned rows, and integrity rate.
+    Returns dict with total child rows, null FK rows, orphaned non-null rows,
+    and integrity rate over non-null FK rows.
     """
     result = conn.execute(f"""
         SELECT
             COUNT(*) AS total,
-            COUNT(CASE WHEN p.{parent_column} IS NULL THEN 1 END) AS orphaned
+            SUM(CASE WHEN c.{child_column} IS NULL THEN 1 ELSE 0 END) AS null_fk,
+            SUM(
+                CASE
+                    WHEN c.{child_column} IS NOT NULL
+                     AND NOT EXISTS (
+                         SELECT 1
+                         FROM {parent_schema}.{parent_table} p
+                         WHERE p.{parent_column} = c.{child_column}
+                     )
+                    THEN 1 ELSE 0
+                END
+            ) AS orphaned
         FROM {child_schema}.{child_table} c
-        LEFT JOIN {parent_schema}.{parent_table} p
-            ON c.{child_column} = p.{parent_column}
         """).fetchone()
     if not result:
-        return {"total": 0, "orphaned": 0, "integrity_rate": 1.0}
-    total, orphaned = result
-    total_i = int(total)
-    orphaned_i = int(orphaned)
-    rate = 1.0 - (float(orphaned_i) / float(total_i)) if total_i > 0 else 1.0
-    return {"total": total_i, "orphaned": orphaned_i, "integrity_rate": rate}
+        return {"total": 0, "null_fk": 0, "orphaned": 0, "integrity_rate": 1.0}
+    total, null_fk, orphaned = result
+    total_i = int(total or 0)
+    null_i = int(null_fk or 0)
+    orphaned_i = int(orphaned or 0)
+    comparable = total_i - null_i
+    rate = 1.0 - (float(orphaned_i) / float(comparable)) if comparable > 0 else 1.0
+    return {
+        "total": total_i,
+        "null_fk": null_i,
+        "orphaned": orphaned_i,
+        "integrity_rate": rate,
+    }
 
 
 def check_date_range(
     conn: duckdb.DuckDBPyConnection,
     table: str,
     date_column: str,
-    schema: str = "raw",
+    schema: str = SCHEMA_RAW,
 ) -> dict[str, str]:
     """Return min and max dates for a date column."""
     result = conn.execute(f"""
@@ -122,22 +140,67 @@ def check_review_score_range(
     conn: duckdb.DuckDBPyConnection,
     table: str = "reviews",
     score_column: str = "review_score",
-    schema: str = "raw",
+    schema: str = SCHEMA_RAW,
 ) -> dict[str, int | float]:
-    """Check that review scores are within valid range (1-5)."""
+    """Check that review scores are present, numeric-castable, and within range (1-5)."""
     result = conn.execute(f"""
         SELECT
             COUNT(*) AS total,
-            COUNT(CASE WHEN TRY_CAST({score_column} AS INTEGER) < {REVIEW_SCORE_MIN}
-                       OR TRY_CAST({score_column} AS INTEGER) > {REVIEW_SCORE_MAX}
-                       THEN 1 END) AS invalid
+            SUM(CASE WHEN {score_column} IS NULL THEN 1 ELSE 0 END) AS null_count,
+            SUM(
+                CASE
+                    WHEN {score_column} IS NOT NULL
+                     AND TRY_CAST({score_column} AS INTEGER) IS NULL
+                    THEN 1 ELSE 0
+                END
+            ) AS non_numeric,
+            SUM(
+                CASE
+                    WHEN TRY_CAST({score_column} AS INTEGER) IS NOT NULL
+                     AND (
+                         CAST(TRY_CAST({score_column} AS INTEGER) AS INTEGER) < {REVIEW_SCORE_MIN}
+                      OR CAST(TRY_CAST({score_column} AS INTEGER) AS INTEGER) > {REVIEW_SCORE_MAX}
+                     )
+                    THEN 1 ELSE 0
+                END
+            ) AS out_of_range,
+            SUM(
+                CASE
+                    WHEN TRY_CAST({score_column} AS INTEGER) IS NOT NULL
+                     AND CAST(TRY_CAST({score_column} AS INTEGER) AS INTEGER)
+                         BETWEEN {REVIEW_SCORE_MIN} AND {REVIEW_SCORE_MAX}
+                    THEN 1 ELSE 0
+                END
+            ) AS valid
         FROM {schema}.{table}
         """).fetchone()
     if not result:
-        return {"total": 0, "invalid": 0, "valid_rate": 1.0}
-    total, invalid = result
-    rate = 1.0 - (invalid / total) if total > 0 else 1.0
-    return {"total": total, "invalid": invalid, "valid_rate": rate}
+        return {
+            "total": 0,
+            "null": 0,
+            "non_numeric": 0,
+            "out_of_range": 0,
+            "invalid": 0,
+            "valid": 0,
+            "valid_rate": 1.0,
+        }
+    total, null_count, non_numeric, out_of_range, valid = result
+    total_i = int(total or 0)
+    null_i = int(null_count or 0)
+    non_num_i = int(non_numeric or 0)
+    oor_i = int(out_of_range or 0)
+    valid_i = int(valid or 0)
+    invalid_i = null_i + non_num_i + oor_i
+    rate = (float(valid_i) / float(total_i)) if total_i > 0 else 1.0
+    return {
+        "total": total_i,
+        "null": null_i,
+        "non_numeric": non_num_i,
+        "out_of_range": oor_i,
+        "invalid": invalid_i,
+        "valid": valid_i,
+        "valid_rate": rate,
+    }
 
 
 def run_all_checks(conn: duckdb.DuckDBPyConnection) -> dict:
@@ -151,7 +214,6 @@ def run_all_checks(conn: duckdb.DuckDBPyConnection) -> dict:
         "review_score_range": {},
     }
 
-    # Null rate checks for critical columns
     null_checks = {
         "orders": ["order_id", "customer_id", "order_status", "order_purchase_timestamp"],
         "order_items": ["order_id", "order_item_id", "product_id", "seller_id"],
@@ -163,10 +225,9 @@ def run_all_checks(conn: duckdb.DuckDBPyConnection) -> dict:
         "geolocation": ["geolocation_zip_code_prefix"],
     }
     for table, columns in null_checks.items():
-        if table_exists(conn, table):
-            results["null_rates"][table] = check_null_rates(conn, table, columns)
+        if table_exists(conn, table, schema=SCHEMA_RAW):
+            results["null_rates"][table] = check_null_rates(conn, table, columns, schema=SCHEMA_RAW)
 
-    # Primary key uniqueness checks
     pk_checks = {
         "orders": ["order_id"],
         "order_items": ["order_id", "order_item_id"],
@@ -176,12 +237,11 @@ def run_all_checks(conn: duckdb.DuckDBPyConnection) -> dict:
         "reviews": ["review_id"],
     }
     for table, keys in pk_checks.items():
-        if table_exists(conn, table):
+        if table_exists(conn, table, schema=SCHEMA_RAW):
             results["primary_key_uniqueness"][table] = check_primary_key_uniqueness(
-                conn, table, keys
+                conn, table, keys, schema=SCHEMA_RAW
             )
 
-    # Referential integrity checks
     ri_checks = [
         ("order_items", "order_id", "orders", "order_id"),
         ("order_items", "product_id", "products", "product_id"),
@@ -190,22 +250,20 @@ def run_all_checks(conn: duckdb.DuckDBPyConnection) -> dict:
         ("reviews", "order_id", "orders", "order_id"),
     ]
     for child, child_col, parent, parent_col in ri_checks:
-        if table_exists(conn, child) and table_exists(conn, parent):
+        if table_exists(conn, child, schema=SCHEMA_RAW) and table_exists(
+            conn, parent, schema=SCHEMA_RAW
+        ):
             key = f"{child}.{child_col} -> {parent}.{parent_col}"
             results["referential_integrity"][key] = check_referential_integrity(
                 conn, child, child_col, parent, parent_col
             )
 
-    # Date range checks
-    date_checks = {
-        "orders": "order_purchase_timestamp",
-    }
+    date_checks = {"orders": "order_purchase_timestamp"}
     for table, col in date_checks.items():
-        if table_exists(conn, table):
-            results["date_ranges"][table] = check_date_range(conn, table, col)
+        if table_exists(conn, table, schema=SCHEMA_RAW):
+            results["date_ranges"][table] = check_date_range(conn, table, col, schema=SCHEMA_RAW)
 
-    # Review score range
-    if table_exists(conn, "reviews"):
+    if table_exists(conn, "reviews", schema=SCHEMA_RAW):
         results["review_score_range"] = check_review_score_range(conn)
 
     return results
@@ -213,9 +271,6 @@ def run_all_checks(conn: duckdb.DuckDBPyConnection) -> dict:
 
 def save_findings(results: dict, output_path: Path | None = None) -> Path:
     """Save validation results as JSON."""
-    import json
-    from datetime import datetime
-
     path = output_path or (FINDINGS_DIR / "data_quality.json")
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -224,5 +279,5 @@ def save_findings(results: dict, output_path: Path | None = None) -> Path:
         "results": results,
     }
 
-    path.write_text(json.dumps(report, indent=2, default=str))
+    path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     return path

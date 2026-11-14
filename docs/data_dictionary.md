@@ -1,91 +1,99 @@
 # Data Dictionary
 
-**Project ID:** OLIST-CI-02  
-**Version:** 1.1  
-**Status:** Finalized (aligned to implemented analytics schema)
+**Project ID:** OLIST-CI-02
+**Version:** 1.2
+**Status:** Aligned to implemented schema/SQL and corrected grains (2026-11-14)
 
 ## 1. Source Data
 
-- **Dataset:** Brazilian E-Commerce Public Dataset by Olist (Kaggle).  
-- **Observed order period:** 2016-09-04 21:15:19 to 2018-10-17 17:30:18 (`raw.orders.order_purchase_timestamp` / `analytics.fact_orders.order_purchase_timestamp`).  
-- **Warehouse:** DuckDB `db/olist.duckdb` with schemas `raw`, `staging`, `analytics`.
+- **Dataset:** Brazilian E-Commerce Public Dataset by Olist (Kaggle).
+- **Observed order period:** 2016-09-04 21:15:19 to 2018-10-17 17:30:18 (`analytics.fact_orders.order_purchase_timestamp`).
+- **Warehouse:** DuckDB `db/olist.duckdb` (default) with schemas `raw`, `staging`, `analytics`.
+- **Raw inputs:** 9 CSVs in `data/raw/` (see `src/config.py`).
 
 ## 2. Schemas
 
 ### 2.1 Raw (`raw`)
-Ingested as VARCHAR via `read_csv_auto(..., all_varchar=true)`; source of truth preserved.
+Loaded via `read_csv_auto(..., header=true, all_varchar=true)` in `src/ingest.py` (source preserved as text).
 
-| Table | Key / Grain (source) | Notes |
-|-------|-----------------------|------|
-| `orders` | `order_id` | Timestamps, status |
-| `order_items` | `order_id`, `order_item_id` | Price, freight |
-| `customers` | `customer_id` | Includes `customer_unique_id` |
-| `products` | `product_id` | Category and attributes |
-| `sellers` | `seller_id` | Location |
-| `payments` | `order_id`, `payment_sequential` | Payment rows |
-| `reviews` | `review_id` (not unique in raw) | Score/comments/timestamps; duplicates exist |
-| `geolocation` | `geolocation_zip_code_prefix` (many rows/prefix) | Lat/lng/city/state |
-| `category_translation` | `product_category_name` | PT→EN mapping |
+| Table | Source file | Key / grain note |
+|---|---|---|
+| `orders` | `olist_orders_dataset.csv` | `order_id` |
+| `order_items` | `olist_order_items_dataset.csv` | (`order_id`,`order_item_id`) |
+| `customers` | `olist_customers_dataset.csv` | `customer_id` (order-scoped); includes `customer_unique_id` |
+| `products` | `olist_products_dataset.csv` | `product_id` |
+| `sellers` | `olist_sellers_dataset.csv` | `seller_id` |
+| `payments` | `olist_order_payments_dataset.csv` | (`order_id`,`payment_sequential`) |
+| `reviews` | `olist_order_reviews_dataset.csv` | `review_id` not unique in raw (duplicate IDs linked to different orders observed) |
+| `geolocation` | `olist_geolocation_dataset.csv` | many rows per `geolocation_zip_code_prefix` |
+| `category_translation` | `product_category_name_translation.csv` | `product_category_name` |
 
 ### 2.2 Staging (`staging`)
-Typed/cleaned equivalents of raw tables (timestamps, numeric casts). `staging.geolocation` is deduplicated by `geolocation_zip_code_prefix` (avg lat/lng). See `queries/01_staging.sql`.
+Typed/cleaned tables built by `queries/01_staging.sql`.
+- Casts timestamps/numerics (TRY_CAST where appropriate), preserves source categorical values.
+- `staging.geolocation` deduplicated by `geolocation_zip_code_prefix` (AVG lat/lng, representative city/state per prefix group as implemented).
 
 ### 2.3 Analytics (`analytics`)
-Analysis-ready facts/dimensions. See `queries/02_analytics.sql`.
+Analysis-ready facts/dimensions built by `queries/02_analytics.sql`. Grains validated per `src/config.py`.
 
 | Table | Type | Grain (key) | Description |
-|-------|------|-------------|-------------|
-| `fact_orders` | Fact | 1 / `order_id` | Order attributes, time parts, delivery metrics, totals |
-| `fact_order_items` | Fact | 1 / (`order_id`,`order_item_id`) | Item price/freight, product & seller attrs, `freight_to_price_ratio` |
-| `fact_payments` | Fact | 1 / (`order_id`,`payment_sequential`) | Payment details, `avg_installment_value`, links |
-| `fact_reviews` | Fact | 1 / `review_id` | Deduplicated reviews with `valid_review_score`, order/customer/category link |
-| `fact_delivery` | Fact | 1 / `order_id` | Delivery days/bucket/gap, freight/value shares, status flags |
-| `dim_customers` | Dimension | 1 / `customer_unique_id` | Location, aggregated orders/spend, repeat flag |
+|---|---|---|---|
+| `fact_orders` | Fact | 1 / `order_id` | Order attributes, status, timestamps, delivery metrics, payment-based totals, item count |
+| `fact_order_items` | Fact | 1 / (`order_id`,`order_item_id`) | Item price/freight, product & seller attrs, freight ratio |
+| `fact_payments` | Fact | 1 / (`order_id`,`payment_sequential`) | Payment details and installment metrics |
+| `fact_reviews` | Fact | 1 / (`review_id`,`order_id`) | Review-order pairs with `valid_review_score`, order/customer/category link |
+| `fact_delivery` | Fact | 1 / `order_id` | Delivery days/bucket/gap, freight/value shares, flags |
+| `dim_customers` | Dimension | 1 / `customer_unique_id` | Location/identity aggregates over all linked orders; repeat flag |
 | `dim_products` | Dimension | 1 / `product_id` | Attributes and sales aggregates |
 | `dim_sellers` | Dimension | 1 / `seller_id` | Location and sales aggregates |
 
 ## 3. Key Analytics Columns (selected)
 
 ### `analytics.fact_orders`
-`order_id`, `customer_id`, `customer_unique_id`, `order_status`, `order_purchase_timestamp`, `order_approved_at`, `order_delivered_customer_date`, `order_estimated_delivery_date`, `order_purchase_year`, `order_purchase_month`, `order_purchase_day_of_week`, `is_delivered`, `delivery_time_days`, `delivery_gap_days`, `order_total_value`, `order_delivered_value`, `order_freight_value`, `order_items_count`.
+`order_id`, `customer_id`, `customer_unique_id`, `order_status`, `order_purchase_timestamp`, `order_approved_at`, `order_delivered_carrier_date`, `order_delivered_customer_date`, `order_estimated_delivery_date`, `order_purchase_year`, `order_purchase_month`, `order_purchase_day_of_week`, `is_delivered`, `delivery_time_days`, `delivery_gap_days`, `order_total_value` (sum of payments), `order_delivered_value` (item+freight aggregate as defined in SQL), `order_freight_value`, `order_items_count`.
 
 ### `analytics.fact_delivery`
-`order_id`, `delivery_time_days`, `delivery_time_bucket`, `delivery_gap_days`, `order_estimated_delivery_date`, `order_delivered_customer_date`, `order_freight_value`, `order_total_value`, `freight_share`, `is_delivered`, `order_items_count`.
+`order_id`, `delivery_time_days`, `delivery_time_bucket` (`0-3 days`,`4-7 days`,`8-14 days`,`15-30 days`,`30+ days`), `delivery_gap_days` (estimated minus delivered; >= 0 treated as on-time/early per KPI), `order_estimated_delivery_date`, `order_delivered_customer_date`, `order_freight_value`, `order_total_value`, `freight_share`, `is_delivered`, `order_items_count`.
 
 ### `analytics.fact_reviews`
-`review_id`, `order_id`, `review_score`, `review_comment_title`, `review_comment_message`, `review_creation_date`, `review_answer_timestamp`, `customer_id`, `product_category_name`, `valid_review_score`.
+`review_id`, `order_id`, `review_score`, `review_comment_title`, `review_comment_message`, `review_creation_date`, `review_answer_timestamp`, `customer_id`, `product_category_name` (linked via order items as implemented), `valid_review_score` (1–5 or NULL).
 
 ### `analytics.dim_customers`
-`customer_unique_id`, `customer_id`, `customer_zip_code_prefix`, `customer_city`, `customer_state`, `total_orders`, `total_spent`, `avg_order_value`, `first_purchase_date`, `last_purchase_date`, `is_repeat_customer`.
+`customer_unique_id`, `customer_id` (deterministic representative), `customer_zip_code_prefix`, `customer_city`, `customer_state`, `total_orders`, `total_spent`, `avg_order_value`, `first_purchase_date`, `last_purchase_date`, `is_repeat_customer`.
 
-## 4. Relationships (analytics)
+## 4. Relationships and Join Guidance
 
-- `dim_customers.customer_id` ↔ `fact_orders.customer_id` (orders placed; customer dimension keyed by `customer_unique_id`)
-- `fact_orders.order_id` ↔ `fact_order_items.order_id`
-- `fact_orders.order_id` ↔ `fact_payments.order_id`
-- `fact_orders.order_id` ↔ `fact_reviews.order_id`
-- `fact_orders.order_id` ↔ `fact_delivery.order_id`
-- `fact_order_items.product_id` ↔ `dim_products.product_id`
-- `fact_order_items.seller_id` ↔ `dim_sellers.seller_id`
+- `fact_orders.customer_id` ↔ `staging.customers.customer_id` (use for order-level location/state analysis).
+- `dim_customers.customer_unique_id` groups all linked orders for a unique customer; `dim_customers.customer_id` is a representative key, **not** a complete per-order mapping for geographic order analysis.
+- `fact_orders.order_id` ↔ `fact_order_items.order_id` (1-to-many).
+- `fact_orders.order_id` ↔ `fact_payments.order_id` (1-to-many).
+- `fact_orders.order_id` ↔ `fact_reviews.order_id` (1-to-many at review-order grain).
+- `fact_orders.order_id` ↔ `fact_delivery.order_id` (1-to-1).
+- `fact_order_items.product_id` ↔ `dim_products.product_id`; `fact_order_items.seller_id` ↔ `dim_sellers.seller_id`.
 
-Geographic analysis joins `fact_orders` to `dim_customers` on `customer_id` to use `customer_state`.
+## 5. Metric and Data Notes
 
-## 5. Data Quality and Integrity
+- **Payment-based order value:** `gmv_payments`/`order_total_value` are payment-sum based (`SUM(payments.payment_value)`), not a pure item-merchandise-only GMV. Freight and payment composition are reflected as recorded in payments; state meaning explicitly in reports.
+- **Repeat rate:** based on `customer_unique_id` linkage over observed period (approved KPI).
+- **Review analyses:** use valid scores (1–5). Category review metric = avg order-level review among orders containing category at distinct `(order_id, category)`; do not interpret as item-level causal satisfaction.
+- **Correlations:** computed as Pearson and Spearman separately on filtered samples (see exports/notebooks); associations only.
 
-- **DQ findings:** `outputs/findings/data_quality.json` (refreshed via pipeline/validation). Core referential integrity checks pass (0 orphaned on validated links). `review_score` values in range 1–5 where present.
-- **Analytics validation:** `docs/olist/analytics_validation.json` (grain and transform checks all valid).
-- **Known issues:** raw `reviews.review_id` not unique (deduplicated in `fact_reviews`); `products.product_category_name` null rate ~1.85%.
+## 6. Data Quality and Integrity (validated)
 
-## 6. Processing and Reproducibility
+- **DQ:** `outputs/findings/data_quality.json` (row/null/PK/referential/date/review-score checks).
+- **Grain/transform:** `docs/olist/analytics_validation.json` (all checks PASS on current DB; geographic mapping reconciles 99,441 orders).
+- **Integrity:** `docs/olist/integrity_check.json` (core raw referential checks PASS).
+- **Known issues:** raw `reviews.review_id` duplicates exist (789 IDs linked to different orders; analytics preserves `(review_id,order_id)`); `products.product_category_name` null ~1.85%; boundary months 2016-09, 2018-09, 2018-10 partial and 2016-11 missing.
 
-- **Ingest/validate/transform/grain:** `python -m src.pipeline run` (requires `data/raw/`).  
-- **SQL definitions:** `queries/01_staging.sql`, `queries/02_analytics.sql`.  
-- **Analysis exports:** `python scripts/export_analysis.py` → `outputs/findings/*`, `outputs/charts/*`.  
-- **Profiles:** `docs/olist/profile/*.md` (generated by `scripts/profile_olist.py`).
+## 7. Reproducibility
 
-## 7. Usage Notes
+- **Pipeline:** `python -m src.pipeline <command>` with optional `--db-path` and `--overwrite` for ingest/run (see `docs/system_architecture.md`).
+- **SQL:** `queries/01_staging.sql`, `queries/02_analytics.sql`.
+- **Exports/profiles:** `scripts/export_analysis.py`, `scripts/profile_olist.py`.
+- **Tests:** `tests/test_pipeline_integrity.py` (DB-backed, skips if artifacts missing), `tests/test_unit_synthetic.py` (synthetic units).
 
-- State **source table, `order_status` filter, and grain** with every reported metric.  
-- Joining orders to items multiplies rows; aggregate at intended grain (e.g. `COUNT(DISTINCT order_id)`).  
-- Original categorical values (e.g. Portuguese `product_category_name`) are preserved; translations are separate/reference data.  
-- Candidate/approved KPI definitions are governed by `docs/olist/03_kpi_definitions.md`.
+## 8. Usage Rules
+
+- Always state **source table(s), `order_status` filter, and grain** with each metric.
+- Avoid fanout: aggregate at intended grain before interpretation (e.g. distinct orders/customers/order-category pairs).
+- Treat findings as observational (2016–2018 sample); no causal claims.

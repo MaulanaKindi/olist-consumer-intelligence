@@ -1,12 +1,13 @@
 # Project Charter
 
-## Brazilian E-Commerce: Consumer Behavior, Experience & Market Intelligence
+## Olist Consumer & Marketplace Intelligence
 
-**Project ID:** OLIST-CI-02  
-**Project Type:** Consumer Intelligence / Market Intelligence  
-**Primary Decision Audience:** E-commerce Marketplace Management  
-**Dataset:** Brazilian E-Commerce Public Dataset by Olist  
-**Data Period:** 2016–2018 (observed 2016-09-04 to 2018-10-17)  
+**Project ID:** OLIST-CI-02
+**Project Type:** Consumer Intelligence / Market Intelligence
+**Subtitle:** Brazilian E-Commerce: Consumer Behavior, Experience & Market Intelligence
+**Primary Decision Audience:** E-commerce Marketplace Management
+**Dataset:** Brazilian E-Commerce Public Dataset by Olist
+**Data Period:** 2016â€“2018 (observed 2016-09-04 to 2018-10-17)
 **Status:** Approved (v1.0, analysis and deliverables completed)
 
 ### 1. Project Background

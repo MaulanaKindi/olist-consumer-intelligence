@@ -1,3 +1,5 @@
+"""Generate exact table/column profiles for raw Olist tables."""
+
 from pathlib import Path
 
 import duckdb
@@ -10,7 +12,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 con = duckdb.connect(DB_PATH, read_only=True)
 in_list = ",".join(repr(s) for s in SCHEMAS)
 tables = con.execute(
-    f"SELECT table_schema, table_name FROM information_schema.tables "
+    "SELECT table_schema, table_name FROM information_schema.tables "
     f"WHERE table_schema IN ({in_list}) ORDER BY 1, 2"
 ).fetchall()
 
@@ -26,7 +28,7 @@ for schema, table in tables:
     parts = ["count(*)"]
     for c, dt in cols:
         parts.append(f'count(*) - count("{c}")')
-        parts.append(f'approx_count_distinct("{c}")')
+        parts.append(f'count(DISTINCT "{c}")')
         if any(k in dt.upper() for k in RANGE_TYPES):
             parts.append(f'min("{c}")::VARCHAR')
             parts.append(f'max("{c}")::VARCHAR')

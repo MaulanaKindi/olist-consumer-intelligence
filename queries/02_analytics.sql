@@ -6,12 +6,13 @@
 --   dim_products      : one row per product_id
 --   dim_sellers       : one row per seller_id
 --   fact_payments     : one row per payment record
---   fact_reviews      : one row per review_id
+--   fact_reviews      : one row per (review_id, order_id) review-order pair
 --   fact_delivery     : one row per order_id
 
 CREATE SCHEMA IF NOT EXISTS analytics;
 
 -- Base order facts: core order attributes + delivery computed at order level.
+-- Grain: one row per order_id.
 CREATE OR REPLACE TABLE analytics.fact_orders AS
 WITH base AS (
     SELECT
@@ -21,6 +22,7 @@ WITH base AS (
         o.order_status,
         o.order_purchase_timestamp,
         o.order_approved_at,
+        o.order_delivered_carrier_date,
         o.order_delivered_customer_date,
         o.order_estimated_delivery_date,
         EXTRACT(year FROM o.order_purchase_timestamp) AS order_purchase_year,
@@ -43,9 +45,6 @@ WITH base AS (
         END AS delivery_gap_days
     FROM staging.orders o
     LEFT JOIN staging.customers c ON o.customer_id = c.customer_id
-    GROUP BY o.order_id, o.customer_id, c.customer_unique_id, o.order_status, o.order_purchase_timestamp,
-             o.order_approved_at, o.order_delivered_customer_date,
-             o.order_estimated_delivery_date
 )
 SELECT
     b.order_id,
@@ -54,6 +53,7 @@ SELECT
     b.order_status,
     b.order_purchase_timestamp,
     b.order_approved_at,
+    b.order_delivered_carrier_date,
     b.order_delivered_customer_date,
     b.order_estimated_delivery_date,
     b.order_purchase_year,
@@ -115,17 +115,34 @@ LEFT JOIN staging.products p ON oi.product_id = p.product_id
 LEFT JOIN staging.sellers s ON oi.seller_id = s.seller_id;
 
 -- dim_customers: one row per unique customer.
--- Deduplicate by customer_unique_id (take first customer_id per unique_id)
+-- Representative attributes are taken from one deterministic source customer record
+-- (first customer_id per customer_unique_id). Order-level aggregates are computed
+-- across all order-scoped customer records linked to the same customer_unique_id.
+-- Geographic order analysis must join orders to staging.customers via customer_id,
+-- not via this representative customer_id.
 CREATE OR REPLACE TABLE analytics.dim_customers AS
-WITH dedup AS (
+WITH cust_ranked AS (
     SELECT
         customer_unique_id,
-        MIN(customer_id) AS customer_id,
-        MIN(customer_zip_code_prefix) AS customer_zip_code_prefix,
-        MIN(customer_city) AS customer_city,
-        MIN(customer_state) AS customer_state
+        customer_id,
+        customer_zip_code_prefix,
+        customer_city,
+        customer_state,
+        ROW_NUMBER() OVER (
+            PARTITION BY customer_unique_id
+            ORDER BY customer_id
+        ) AS rn
     FROM staging.customers
-    GROUP BY customer_unique_id
+),
+representative AS (
+    SELECT
+        customer_unique_id,
+        customer_id AS representative_customer_id,
+        customer_zip_code_prefix,
+        customer_city,
+        customer_state
+    FROM cust_ranked
+    WHERE rn = 1
 ),
 cust_orders AS (
     SELECT
@@ -135,26 +152,35 @@ cust_orders AS (
         o.order_purchase_timestamp
     FROM staging.customers c
     JOIN analytics.fact_orders o ON c.customer_id = o.customer_id
+),
+agg AS (
+    SELECT
+        customer_unique_id,
+        COUNT(DISTINCT order_id) AS total_orders,
+        SUM(order_total_value) AS total_spent,
+        AVG(order_total_value) AS avg_order_value,
+        MIN(order_purchase_timestamp) AS first_purchase_date,
+        MAX(order_purchase_timestamp) AS last_purchase_date
+    FROM cust_orders
+    GROUP BY customer_unique_id
 )
 SELECT
-    d.customer_unique_id,
-    d.customer_id,
-    d.customer_zip_code_prefix,
-    d.customer_city,
-    d.customer_state,
-    COUNT(DISTINCT co.order_id) AS total_orders,
-    SUM(co.order_total_value) AS total_spent,
-    AVG(co.order_total_value) AS avg_order_value,
-    MIN(co.order_purchase_timestamp) AS first_purchase_date,
-    MAX(co.order_purchase_timestamp) AS last_purchase_date,
+    r.customer_unique_id,
+    r.representative_customer_id AS customer_id,
+    r.customer_zip_code_prefix,
+    r.customer_city,
+    r.customer_state,
+    COALESCE(a.total_orders, 0) AS total_orders,
+    COALESCE(a.total_spent, 0.0) AS total_spent,
+    a.avg_order_value,
+    a.first_purchase_date,
+    a.last_purchase_date,
     CASE
-        WHEN COUNT(DISTINCT co.order_id) > 1 THEN TRUE
+        WHEN COALESCE(a.total_orders, 0) > 1 THEN TRUE
         ELSE FALSE
     END AS is_repeat_customer
-FROM dedup d
-LEFT JOIN cust_orders co ON d.customer_unique_id = co.customer_unique_id
-GROUP BY d.customer_unique_id, d.customer_id, d.customer_zip_code_prefix,
-         d.customer_city, d.customer_state;
+FROM representative r
+LEFT JOIN agg a ON r.customer_unique_id = a.customer_unique_id;
 
 -- dim_products: one row per product.
 CREATE OR REPLACE TABLE analytics.dim_products AS
@@ -166,7 +192,7 @@ SELECT
     p.product_height_cm,
     p.product_width_cm,
     COUNT(DISTINCT oi.order_id) AS total_orders,
-    COUNT(DISTINCT oi.order_item_id) AS total_items_sold,
+    COUNT(oi.order_item_id) AS total_items_sold,
     SUM(oi.price) AS total_revenue,
     AVG(oi.price) AS avg_price
 FROM staging.products p
@@ -181,7 +207,7 @@ SELECT
     s.seller_city,
     s.seller_state,
     COUNT(DISTINCT oi.order_id) AS total_orders,
-    COUNT(DISTINCT oi.order_item_id) AS total_items_sold,
+    COUNT(oi.order_item_id) AS total_items_sold,
     SUM(oi.price) AS total_revenue,
     AVG(oi.price) AS avg_price
 FROM staging.sellers s
@@ -206,11 +232,12 @@ SELECT
 FROM staging.payments p
 LEFT JOIN analytics.fact_orders o ON p.order_id = o.order_id;
 
--- fact_reviews: one row per review.
--- The raw reviews table contains duplicate review_id rows (each linked to
--- different orders in the source). Deduplicate by review_id to preserve grain.
--- Product category is taken from the first order item of that order (to avoid
--- multiplying review rows when an order has multiple items).
+-- fact_reviews: review records linked to orders.
+-- Grain: one row per (review_id, order_id). Source data contains the same
+-- review_id associated with different orders (same score/timestamps/messages in
+-- observed duplicates); preserving the review-order pair avoids dropping valid
+-- order associations. Exact duplicate review-order rows are removed
+-- deterministically.
 CREATE OR REPLACE TABLE analytics.fact_reviews AS
 WITH dedup AS (
     SELECT
@@ -221,15 +248,31 @@ WITH dedup AS (
         review_comment_message,
         review_creation_date,
         review_answer_timestamp,
-        ROW_NUMBER() OVER (PARTITION BY review_id ORDER BY review_creation_date) AS rn
+        ROW_NUMBER() OVER (
+            PARTITION BY review_id, order_id
+            ORDER BY review_answer_timestamp DESC NULLS LAST,
+                     review_creation_date DESC NULLS LAST,
+                     review_comment_message DESC NULLS LAST,
+                     review_comment_title DESC NULLS LAST,
+                     review_score DESC NULLS LAST
+        ) AS rn
     FROM staging.reviews
 ),
-order_category AS (
+order_first_item AS (
     SELECT
         order_id,
-        MIN(product_category_name) AS product_category_name
-    FROM analytics.fact_order_items
-    GROUP BY order_id
+        product_category_name AS representative_product_category_name
+    FROM (
+        SELECT
+            order_id,
+            product_category_name,
+            ROW_NUMBER() OVER (
+                PARTITION BY order_id
+                ORDER BY order_item_id
+            ) AS rn
+        FROM analytics.fact_order_items
+    ) t
+    WHERE rn = 1
 )
 SELECT
     d.review_id,
@@ -240,14 +283,14 @@ SELECT
     d.review_creation_date,
     d.review_answer_timestamp,
     o.customer_id,
-    oc.product_category_name,
+    ofi.representative_product_category_name AS product_category_name,
     CASE
         WHEN d.review_score BETWEEN 1 AND 5 THEN d.review_score
         ELSE NULL
     END AS valid_review_score
 FROM dedup d
 LEFT JOIN analytics.fact_orders o ON d.order_id = o.order_id
-LEFT JOIN order_category oc ON d.order_id = oc.order_id
+LEFT JOIN order_first_item ofi ON d.order_id = ofi.order_id
 WHERE d.rn = 1;
 
 -- fact_delivery: one row per order (delivery summary with buckets).
