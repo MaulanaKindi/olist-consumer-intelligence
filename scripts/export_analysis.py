@@ -29,6 +29,21 @@ DOCS_STRAT = PROJECT_ROOT / "docs" / "strategic_recommendations.md"
 # - avg_delivery_days: is_delivered AND delivery_time_days IS NOT NULL.
 # Grain/filter/source stated per metric in outputs.
 
+# Colorblind-safe Okabe-Ito palette.
+PALETTE = {
+    "blue": "#0072B2",
+    "vermillion": "#D55E00",
+    "orange": "#E69F00",
+    "bluish_green": "#009E73",
+    "reddish_purple": "#CC79A7",
+    "yellow": "#F0E442",
+    "sky_blue": "#56B4E9",
+    "gray": "#999999",
+}
+
+CHART_DPI = 150
+CHART_BBOX = "tight"
+
 
 def q(conn: duckdb.DuckDBPyConnection, sql: str) -> pd.DataFrame:
     return conn.execute(sql).fetchdf()
@@ -72,6 +87,148 @@ def sync_portfolio_reports(docs_exec: Path, docs_strat: Path, reports_dir: Path)
             )
             status[name] = False
     return status
+
+
+# ---------------------------------------------------------------------------
+# Pure chart helpers (testable without a database)
+# ---------------------------------------------------------------------------
+
+
+def apply_chart_style(ax: plt.Axes) -> None:
+    """Remove top/right spines and apply consistent tick styling."""
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(labelsize=9)
+
+
+def fmt_value(value: float, decimals: int = 1) -> str:
+    """Format a number with thousands separators and fixed decimals."""
+    return f"{value:,.{decimals}f}"
+
+
+def title_review_by_delivery(by_bucket: pd.DataFrame) -> str:
+    """Finding-style title computed from the plotted data (never hardcoded).
+
+    Highlights the widest review gap between the lowest- and highest-scoring
+    delivery buckets.
+    """
+    lowest = by_bucket.loc[by_bucket["avg_review_score"].idxmin()]
+    highest = by_bucket.loc[by_bucket["avg_review_score"].idxmax()]
+    return (
+        f"Orders delivered in {lowest['delivery_time_bucket']} average "
+        f"{fmt_value(lowest['avg_review_score'])} stars, versus "
+        f"{fmt_value(highest['avg_review_score'])} for "
+        f"{highest['delivery_time_bucket']}"
+    )
+
+
+def title_monthly_orders(monthly: pd.DataFrame) -> str:
+    """Finding-style title built from the computed peak month."""
+    observed = monthly[monthly["order_count"] > 0]
+    if observed.empty:
+        return "Monthly order count (all statuses, complete month spine)"
+    peak = observed.loc[observed["order_count"].idxmax()]
+    return (
+        f"Monthly order volume peaked in {peak['month']} "
+        f"with {int(peak['order_count']):,} orders"
+    )
+
+
+def title_revenue_by_state(geo: pd.DataFrame) -> str:
+    """Finding-style title computed from the full state-level data.
+
+    The leading state's share uses all states (not only the top 15 shown) and
+    is marked "derived" in the documentation. The leading state is the actual
+    maximum, not merely the first row.
+    """
+    total = float(geo["gmv_payments"].sum())
+    top_idx = geo["gmv_payments"].idxmax()
+    top = geo.loc[top_idx]
+    share = top["gmv_payments"] / total if total else 0.0
+    return f"{top['state']} alone accounts for about {share:.0%} of GMV"
+
+
+def plot_monthly_orders(ax: plt.Axes, monthly: pd.DataFrame) -> None:
+    x = monthly["month"]
+    y = monthly["order_count"]
+    ax.plot(x, y, marker="o", color=PALETTE["blue"], label="Observed orders")
+    boundary = monthly[monthly["is_partial_boundary_month"]]
+    if not boundary.empty:
+        ax.scatter(
+            boundary["month"],
+            boundary["order_count"],
+            color=PALETTE["vermillion"],
+            zorder=3,
+            label="Partial boundary month",
+        )
+    ax.set_xticks(range(len(x)))
+    ax.set_xticklabels(x, rotation=45, ha="right")
+    ax.set_ylabel("Orders")
+    apply_chart_style(ax)
+    ax.legend(loc="upper left", fontsize=8)
+    ax.annotate(
+        "Observed period: 2016-09-04 to 2018-10-17; 2016-09 and 2018-09/2018-10 are partial",
+        xy=(0.01, -0.28),
+        xycoords="axes fraction",
+        fontsize=8,
+        color="#444444",
+    )
+
+
+def plot_review_by_delivery(ax: plt.Axes, by_bucket: pd.DataFrame) -> None:
+    bucket_order = ["0-3 days", "4-7 days", "8-14 days", "15-30 days", "30+ days"]
+    data = by_bucket.copy()
+    data["delivery_time_bucket"] = pd.Categorical(
+        data["delivery_time_bucket"], categories=bucket_order, ordered=True
+    )
+    data = data.sort_values("delivery_time_bucket")
+    labels = data["delivery_time_bucket"].astype(str)
+    values = data["avg_review_score"]
+    ns = data["reviews"]
+    # Highlight the lowest-review bucket (the gap driver); keep others neutral.
+    colors = [PALETTE["vermillion"] if v == values.min() else PALETTE["gray"] for v in values]
+    bars = ax.bar(labels, values, color=colors)
+    ax.set_ylabel("Avg review (1-5)")
+    ax.set_xlabel("Delivery time bucket (chronological)")
+    ax.set_ylim(0, 5.2)
+    apply_chart_style(ax)
+    for bar, avg, n in zip(bars, values, ns):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.08,
+            f"{avg:.2f} (n={int(n):,})",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+        )
+
+
+def plot_revenue_by_state(ax: plt.Axes, geo: pd.DataFrame) -> None:
+    top = geo.head(15)
+    values_m = top["gmv_payments"] / 1e6
+    bars = ax.bar(top["state"], values_m, color=PALETTE["blue"])
+    # Highlight the leading state; keep the rest neutral.
+    if len(bars):
+        bars[0].set_color(PALETTE["vermillion"])
+    ax.set_ylabel("GMV (BRL millions)")
+    ax.set_xlabel("Customer state (order-level location)")
+    apply_chart_style(ax)
+    if len(values_m):
+        pad = float(values_m.max()) * 0.02
+        for bar, value in zip(bars, values_m):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                float(value) + pad,
+                f"{value:.1f}",
+                ha="center",
+                va="bottom",
+                fontsize=7,
+            )
+
+
+def save_chart(fig: plt.Figure, name: str, charts_dir: Path) -> None:
+    fig.savefig(charts_dir / name, dpi=CHART_DPI, bbox_inches=CHART_BBOX)
+    plt.close(fig)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -230,34 +387,11 @@ def main(argv: list[str] | None = None) -> None:
             "order_status_distribution": status,
         }
 
-        plt.figure(figsize=(11, 4))
-        x = monthly["month"]
-        y = monthly["order_count"]
-        plt.plot(x, y, marker="o", color="#4C72B0", label="Observed orders")
-        # highlight boundary months
-        boundary = monthly[monthly["is_partial_boundary_month"]]
-        if not boundary.empty:
-            plt.scatter(
-                boundary["month"],
-                boundary["order_count"],
-                color="#C44E52",
-                zorder=3,
-                label="Partial boundary month",
-            )
-        plt.xticks(rotation=45, ha="right")
-        plt.title("Monthly Order Count (all statuses, complete month spine)")
-        plt.ylabel("Orders")
-        plt.annotate(
-            "Observed period: 2016-09-04 to 2018-10-17; 2016-09 and 2018-09/2018-10 are partial",
-            xy=(0.01, -0.28),
-            xycoords="axes fraction",
-            fontsize=8,
-            color="#444444",
-        )
-        plt.legend(loc="upper left", fontsize=8)
-        plt.tight_layout()
-        plt.savefig(charts_dir / "monthly_orders.png", dpi=150, bbox_inches="tight")
-        plt.close()
+        fig, ax = plt.subplots(figsize=(11, 4))
+        plot_monthly_orders(ax, monthly)
+        ax.set_title(title_monthly_orders(monthly), fontsize=11, pad=10)
+        fig.tight_layout()
+        save_chart(fig, "monthly_orders.png", charts_dir)
 
         # 02 experience intelligence
         review_kpi = (
@@ -366,28 +500,11 @@ def main(argv: list[str] | None = None) -> None:
             "on_time_vs_late": on_time.to_dict(orient="records"),
         }
 
-        plt.figure(figsize=(8, 4.5))
-        bars = plt.bar(
-            by_bucket["delivery_time_bucket"].astype(str),
-            by_bucket["avg_review_score"],
-            color="#4C72B0",
-        )
-        plt.title("Average Review Score by Delivery Time Bucket")
-        plt.ylabel("Avg review (1-5)")
-        plt.xlabel("Delivery time bucket (chronological)")
-        for bar, n in zip(bars, by_bucket["reviews"]):
-            plt.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.02,
-                f"n={int(n):,}",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
-        plt.ylim(0, 5.2)
-        plt.tight_layout()
-        plt.savefig(charts_dir / "review_by_delivery_bucket.png", dpi=150)
-        plt.close()
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        plot_review_by_delivery(ax, by_bucket)
+        ax.set_title(title_review_by_delivery(by_bucket), fontsize=11, pad=10)
+        fig.tight_layout()
+        save_chart(fig, "review_by_delivery_bucket.png", charts_dir)
 
         # 03 product/category (order-category grain for reviews)
         cat = q(
@@ -473,15 +590,11 @@ def main(argv: list[str] | None = None) -> None:
             "by_state": geo.to_dict(orient="records"),
         }
 
-        plt.figure(figsize=(10, 4))
-        top = geo.head(15)
-        plt.bar(top["state"], top["gmv_payments"], color="#4C72B0")
-        plt.title("GMV (Payments) by Customer State (Top 15)")
-        plt.ylabel("BRL")
-        plt.xlabel("Customer state (order-level location)")
-        plt.tight_layout()
-        plt.savefig(charts_dir / "revenue_by_state.png", dpi=150)
-        plt.close()
+        fig, ax = plt.subplots(figsize=(10, 4))
+        plot_revenue_by_state(ax, geo)
+        ax.set_title(title_revenue_by_state(geo), fontsize=11, pad=10)
+        fig.tight_layout()
+        save_chart(fig, "revenue_by_state.png", charts_dir)
 
         findings["synthesis"] = {
             "overall": {
