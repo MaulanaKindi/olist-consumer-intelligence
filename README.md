@@ -1,14 +1,31 @@
 # Olist Consumer & Marketplace Intelligence
 
-*Short name: Olist Intelligence*
+We analyzed roughly 100,000 orders from the Brazilian Olist e-commerce marketplace (observed 2016-09-04 to 2018-10-17) to answer one question: does delivery speed relate to customer satisfaction? This is an observational portfolio piece — it shows associations, not cause and effect.
 
-An analytical portfolio examining consumer behavior, marketplace performance, seller dynamics, and operational patterns using the Brazilian Olist e-commerce dataset (observed **2016-09-04 to 2018-10-17**, ~100k orders). Positioned as a **Consumer & Marketplace Intelligence analytical portfolio** (evidence-based consumer and marketplace intelligence; not a complete Competitive Intelligence study) with clear business questions, approved KPI governance, a validated pipeline, and decision-oriented recommendations.
+## 30-second summary
 
-**Source:** [Olist Brazilian E-Commerce Dataset (Kaggle)](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) | **Project:** OLIST-CI-02 | **Primary audience:** E-commerce marketplace management
+We joined orders, items, payments, deliveries, reviews, and customer location at the correct grain so each metric is counted once. The headline: orders delivered on time or early average about 4.3 stars, while late deliveries average about 2.3 stars — a clear gap. Delivery speed varies widely by state, and only about 3% of customers placed more than one order in the period. Together these suggest that protecting delivery reliability is the clearest lever for improving customer experience.
 
----
+## Headline numbers
 
-## Business Problem
+- **~99,441 orders** — total order volume in the observed period.
+- **~16.01M BRL gross merchandise value (payments)** — total sales value across all orders.
+- **~160.99 BRL average order value** (median ~105.29 BRL) — typical spend per order.
+- **~93.23% on-time delivery rate** — share of delivered orders arriving on or before the estimated date (derived late share: ~6.77% = 100% minus the on-time rate).
+- **Review gap: ~4.29 stars on-time/early vs ~2.27 late** — late delivery tracks with much lower satisfaction (association, not causation).
+- **~3.12% repeat customer rate** — share of customers placing more than one order.
+
+Figure 1 — Average customer review score by delivery time bucket. Each bar is the average review (1–5 stars) for orders in that delivery window; `n` is the number of review-order records. The 30+ days bucket is highlighted because it drives the gap.
+
+![Figure 1: average review score by delivery time bucket](docs/assets/review_by_delivery_bucket.png)
+
+## What this demonstrates
+
+- **Reconciled at the right grain:** orders, items, payments, deliveries, reviews, and customer location are joined so each order and each review-order pair is counted once, avoiding double counting.
+- **Governed metrics:** every KPI follows a single approved dictionary (source table, `order_status` filter, and grain stated) in `docs/olist/03_kpi_definitions.md`.
+- **Reproducible and tested:** a raw-to-staging-to-analytics DuckDB pipeline with validation and grain checks, plus lint, format, type, and test checks.
+
+## Business problem
 
 Marketplace teams need an integrated view of purchasing behavior, customer experience, category performance, and geographic operations. Transaction, item, payment, delivery, review, and customer data live in separate tables and must be reconciled at the correct grain before they can support reliable decisions.
 
@@ -18,125 +35,81 @@ Marketplace teams need an integrated view of purchasing behavior, customer exper
 3. How do purchasing patterns and review scores differ across product categories?
 4. How do purchasing patterns and delivery performance vary by geographic region?
 
-## Key Findings (approved KPIs)
+## Key findings
 
-*Metrics follow `docs/olist/03_kpi_definitions.md` v1.1 (source, `order_status` filter, and grain stated). `gmv_payments` is payment-based order value (sum of payments). Observational 2016–2018 data; associations, not causation.*
+Compact summary; full source, filter, and grain detail for every metric is in `docs/olist/03_kpi_definitions.md` and `docs/executive_summary.md`.
 
-| Domain | Finding | Evidence (grain/filter) |
+| Finding | Number | Why it matters |
 |---|---|---|
-| Purchase behavior | **99,441 orders**, **~16.01M BRL GMV (payments)**, **AOV ~160.99 BRL** (median ~105.29), avg **1.13 items/order** | `analytics.fact_orders`, all `order_status` |
-| Retention & risk | **Repeat rate ~3.12%** (2,997/96,096 `customer_unique_id`); **cancellation rate ~0.63%** (625/99,441) | `staging.orders`+`staging.customers` linkage / `fact_orders`, all statuses |
-| Delivery & experience | **On-time rate ~93.23%** (89,941/96,476 delivered with estimate); **avg delivery ~12.50 days** (n=96,478); **avg review ~4.086** (n=99,224 review-order records, valid 1–5) | `fact_delivery` + `analytics.fact_reviews` (grain `review_id,order_id`), delivered/valid constraints |
-| Experience gap | On-time/early avg review **~4.290** (n=89,949) vs late **~2.271** (n=6,410). Buckets (chronological): 0–3d **~4.464** (n=6,951), 4–7d **~4.397** (n=23,730), 8–14d **~4.298** (n=37,986), 15–30d **~3.940** (n=23,485), 30+d **~2.204** (n=4,207). Pearson/Spearman (delivery days, review): **~-0.334 / ~-0.235** | Review-order joined to delivery; associations only |
-| Category mix | Revenue concentrated in `beleza_saude`, `relogios_presentes`, `cama_mesa_banho`, `esporte_lazer`, `informatica_acessorios` with varying avg reviews | `fact_order_items` (item grain) + avg order-level review among orders containing the category (distinct `order_id,category`) |
-| Geography | GMV/orders concentrated in **SP/RJ/MG/RS/PR** (SP: 41,746 orders, ~5.998M BRL). Avg delivery lower in **SP (~8.3d)** vs several North/Northeast states **~19–24+d**. Mapping reconciles to **99,441 orders / ~16.01M BRL** | `fact_orders` joined `staging.customers.customer_id` (order-level location), delivered orders for delivery avg |
-
-*Monthly trend chart uses a complete month spine and marks partial boundary months (2016-09, 2018-09, 2018-10) and missing 2016-11; do not interpret endpoints as trend breaks.*
+| Order volume and sales | ~99,441 orders; ~16.01M BRL GMV | Scale of the marketplace in the observed window. |
+| Typical spend | ~160.99 BRL average order value (median ~105.29 BRL) | Most orders are modest; the mean is pulled up by larger orders. |
+| Delivery reliability | ~93.23% on-time (derived late share ~6.77%) | Most orders arrive on time, but a meaningful share is late. |
+| Satisfaction gap | ~4.29 stars on-time/early vs ~2.27 late | Late delivery tracks with far lower reviews (association). |
+| Delivery speed by state | ~8.3 days in SP vs ~19–24+ days in several North/Northeast states | Service is uneven across regions. |
+| Category revenue leaders | health_beauty, watches_gifts, bed_bath_table, sports_leisure, computers_accessories | Revenue concentrates in a handful of categories (English names; source slugs in the data dictionary). |
+| Repeat behavior | ~3.12% repeat customer rate | Limited observed repeat purchasing in-period. |
 
 ## Recommendations (prioritized)
 
-1. **Protect delivery reliability (High, Ops/CX/Seller mgmt):** Reduce late deliveries and monitor on-time/lead-time buckets by lane/seller; late delivery aligns with materially lower reviews (association).
-2. **Close regional SLA gaps (High, Ops/Marketplace):** Benchmark long-haul states/routes and target carrier/mode improvements while sustaining high-volume corridors.
-3. **Category scorecards (Medium, Category/Commercial/CX):** Track GMV, orders, delivery, and review together (order-category review interpretation); prioritize high-revenue, lower-review segments.
-4. **Validate retention signal (Medium, Marketplace/CRM):** Low observed repeat (~3.12%) depends on `customer_unique_id` linkage and observed period; confirm identity before loyalty conclusions.
-5. **Monitor cancellations explicitly (Medium, Ops):** Keep `canceled` distinct from `unavailable` in operational reporting (approved definition).
+1. **Protect delivery reliability (High):** Reduce late deliveries and monitor on-time and lead-time buckets by lane and seller. Late delivery aligns with materially lower reviews (association).
+2. **Close regional SLA gaps (High):** Benchmark long-haul states and routes; target carrier and mode improvements while sustaining high-volume corridors such as São Paulo.
+3. **Category scorecards (Medium):** Track GMV, orders, delivery, and review together using order-category review interpretation; act on high-revenue, lower-review segments.
+4. **Validate the retention signal (Medium):** The low observed repeat rate (~3.12%) depends on customer identity linkage and the observed period; confirm linkage before loyalty conclusions.
+5. **Monitor cancellations explicitly (Medium):** Keep `canceled` distinct from `unavailable` in operational reporting.
 
-Details: [Executive summary](docs/executive_summary.md) · [Strategic recommendations](docs/strategic_recommendations.md)
+Details: [Executive summary](docs/executive_summary.md) · [Strategic recommendations](docs/strategic_recommendations.md) · [One-page summary](docs/one_page_summary.md)
 
-## Visual Highlights
+## Visual highlights
 
-| Monthly order volume | Avg review by delivery time bucket | GMV by customer state (Top 15) |
+| Monthly order volume | Average review by delivery time bucket | GMV by customer state (top 15) |
 |---|---|---|
-| ![Monthly orders](docs/assets/monthly_orders.png) | ![Review by delivery bucket](docs/assets/review_by_delivery_bucket.png) | ![GMV by state](docs/assets/revenue_by_state.png) |
+| ![Monthly order volume](docs/assets/monthly_orders.png) | ![Average review by delivery bucket](docs/assets/review_by_delivery_bucket.png) | ![GMV by customer state](docs/assets/revenue_by_state.png) |
 
----
-
-## Repository Guide
-
-```text
-olist-consumer-intelligence/
-├── data/raw/                 # Source CSVs (gitignored)
-├── db/                       # DuckDB warehouse (gitignored)
-├── docs/                     # Charter, research design, KPI dict, data dictionary, architecture, DoD, reports, assets
-├── notebooks/                # 00–05 analysis notebooks (grain-aligned)
-├── outputs/                  # Regenerable findings/charts/reports (gitignored by default)
-├── queries/                  # SQL: 01_staging.sql, 02_analytics.sql
-├── scripts/                  # Pipeline utilities and export
-├── src/                      # ETL, validation, grain checks, config
-├── tests/                    # Integrity/KPI tests
-└── README.md
-```
-
-**Start here by audience:** [Portfolio audience guide](docs/portfolio_audience_guide.md) (30s / 5min / deep-dive paths).
+- **Monthly order volume:** shows order counts across the complete month spine; boundary months (2016-09, 2018-09, 2018-10) are partial and marked. *How to read:* do not treat endpoints as trend breaks.
+- **Average review by delivery time bucket:** Figure 1 above. *How to read:* taller review scores cluster in faster buckets; the gap widens sharply at 30+ days.
+- **GMV by customer state (top 15):** sales value concentrated in a few states, led by São Paulo. *How to read:* top 15 of 27 states; computed shares use all states.
 
 ## Reproducibility
 
-**Prerequisites:** Python 3.11+, dependencies in `pyproject.toml` (`pip install -e .[dev]` or `pip install -r requirements-lock.txt` for a pinned environment snapshot), Kaggle Olist CSVs in `data/raw/` (see `src/config.py`). CI runs lint/format/type/test via `.github/workflows/ci.yml`.
+**Prerequisites:** Python 3.11+, dependencies in `pyproject.toml` (`pip install -e .[dev]`), Kaggle Olist CSVs in `data/raw/` (see `src/config.py`). CI runs lint, format, type, and test checks via `.github/workflows/ci.yml`.
 
-**Tests (clean checkout):** the default `pytest` suite is synthetic and uses temporary databases/fixtures (no local `db/` or `outputs/findings/` artifacts required). Three optional real-dataset acceptance tests are skipped unless `OLIST_RUN_REAL_DATASET_TESTS=1` and the required local artifacts exist; a run reporting skipped tests must not be described as "all tests passed."
-
-**Portfolio reports (source of truth):** canonical editorial documents are tracked in `docs/executive_summary.md` and `docs/strategic_recommendations.md`. On export (unless `--skip-copy-docs`), they are mirrored one-way to gitignored `outputs/reports/` (`executive_intelligence_report.md`, `strategic_opportunity_matrix.md`); generated mirrors never overwrite canonical docs. Generated chart PNGs may be curated to `docs/assets/`.
+**Tests (clean checkout):** the default `pytest` suite is synthetic and uses temporary databases/fixtures. Three optional real-dataset acceptance tests are skipped unless `OLIST_RUN_REAL_DATASET_TESTS=1` and the required local artifacts exist; a run reporting skipped tests must not be described as "all tests passed."
 
 ```bash
-# Quality checks (default suite: synthetic/temporary; optional real-dataset tests may be skipped)
 python -m pytest -q
 python -m ruff check .
 python -m black --check .
 python -m mypy src --ignore-missing-imports
-
-# End-to-end pipeline
-# WARNING: runs against the configured default DB (db/olist.duckdb) unless --db-path is supplied.
-# --overwrite can rebuild/replace existing raw tables for that DB. Do not overwrite your only
-# existing database without understanding the consequences.
-# Safe isolated example (keeps default DB untouched):
-python -m src.pipeline run --overwrite --db-path db/olist_isolated.duckdb
-
-# To target the default DB explicitly (destructive rebuild of raw tables for that DB):
-# python -m src.pipeline run --overwrite
-
-# If raw tables already exist and you want to keep them, run stages individually:
-# python -m src.pipeline validate
-# python -m src.pipeline transform
-# python -m src.pipeline grain-checks
-# python -m src.pipeline analytics-validate
-# python -m src.pipeline integrity
-# python -m src.pipeline export
 ```
 
-Notebooks in `notebooks/00–05` are executable top-to-bottom (set `PYTHONPATH` to project root when running outside an installed environment). Key artifacts: `docs/executive_summary.md`, `docs/strategic_recommendations.md`, `docs/assets/*.png`, and regenerable `outputs/findings/*`, `docs/olist/analytics_validation.json`, `docs/olist/integrity_check.json`.
+**Portfolio reports (source of truth):** canonical editorial documents are tracked in `docs/executive_summary.md` and `docs/strategic_recommendations.md`. On export (unless `--skip-copy-docs`), they are mirrored one-way to gitignored `outputs/reports/`; generated mirrors never overwrite canonical docs. Generated chart PNGs may be curated to `docs/assets/`.
 
-## Data Quality & Analytical Rigor
+## Data quality and analytical rigor (shortened)
 
-- **Pipeline:** `raw -> staging -> analytics` in DuckDB; raw data immutable; idempotent SQL transforms; explicit ingest rerun behavior.
-- **Validation:** Row/null/key/referential/range checks and grain/transform assertions (`outputs/findings/data_quality.json`, `docs/olist/analytics_validation.json`, `docs/olist/integrity_check.json`, `python -m src.pipeline grain-checks`).
-- **Governance:** Approved KPI definitions and filters in `docs/olist/03_kpi_definitions.md`; every metric reported with source table, filter, and grain.
-- **Review score (`avg_review_score`):** primary calculation is the mean of `valid_review_score` over valid **review-order records** (`analytics.fact_reviews`, grain `review_id,order_id`; 99,224 valid records, 98,410 distinct `review_id`). Repeated review IDs observed with identical score/content (789 groups, 814 excess occurrences) are preserved to keep each review-order association; mean per distinct `review_id` is reported separately when useful (current delta vs pair mean is negligible, ~-0.00238). Do not describe records as "unique customer reviews" without supporting source semantics.
-- **Known data notes:** Raw `reviews.review_id` has duplicate IDs linked to different orders (preserved as `review_id,order_id` pairs in analytics); `product_category_name` ~1.85% null; repeat behavior depends on `customer_unique_id` linkage and observed period. See `docs/olist/04_pitfalls.md`.
+- **Pipeline:** raw → staging → analytics in DuckDB; raw data immutable; idempotent SQL transforms; explicit ingest behavior.
+- **Validation:** row, null, key, referential, and range checks plus grain and transform assertions (`outputs/findings/data_quality.json`, `docs/olist/analytics_validation.json`, `docs/olist/integrity_check.json`, `python -m src.pipeline grain-checks`).
+- **Review score:** primary calculation is the mean over valid review-order records (`analytics.fact_reviews`, grain `review_id, order_id`; 99,224 valid records, 98,410 distinct `review_id`). Repeated review IDs (789 groups, 814 excess occurrences) are preserved; mean per distinct `review_id` differs by only ~-0.00238.
+- **Known notes:** raw `reviews.review_id` has duplicate IDs linked to different orders; `product_category_name` is null in ~1.85% of products. See `docs/olist/04_pitfalls.md`.
 
-## Tech Stack
-
-Python 3.11, DuckDB, SQL, pandas/NumPy, Matplotlib/Plotly/Seaborn, SciPy/statsmodels, Jupyter, pytest/ruff/black/mypy.
-
-## Documentation
-
-- [Project charter](docs/project_charter.md) · [Research design](docs/research_design.md) · [Data dictionary](docs/data_dictionary.md) · [System architecture](docs/system_architecture.md)
-- [KPI definitions (approved)](docs/olist/03_kpi_definitions.md) · [Olist overview & schema](docs/olist/01_overview.md) · [Analysis pitfalls](docs/olist/04_pitfalls.md)
-- [Definition of Done](docs/definition_of_done.md) · [Dataset license & attribution](docs/dataset_license_notes.md)
-
-## Limitations & Ethics
+## Limitations
 
 - Observational marketplace sample (2016–2018); **not causal**, not representative of all Brazilian e-commerce or current conditions.
-- `review_score` is a satisfaction proxy; response/coverage and timing biases possible. Review metrics are reported as review records/review-order pairs where applicable (see grain notes). Category/state averages mask heterogeneity; monthly endpoints are partially observed.
-- Data is anonymized by the publisher; do not attempt re-identification. Verify current dataset terms on Kaggle before public redistribution or commercial use and provide required attribution.
+- `review_score` is a satisfaction proxy; response, coverage, and timing bias possible. Category and state averages mask heterogeneity; monthly endpoints are partially observed.
+- Data is anonymized by the publisher; do not attempt re-identification. Verify current dataset terms on Kaggle before redistribution and provide required attribution.
 
-## Attribution & Licensing
+## Attribution and licensing
 
-**Dataset listing license: VERIFIED ON KAGGLE (2026-11-14).** The Kaggle dataset listing for *Brazilian E-Commerce Public Dataset by Olist* displays **CC BY-NC-SA 4.0**. **Legal interpretation of the intended portfolio/job-application use: NOT INDEPENDENTLY RESOLVED** (not automatically commercial or non-commercial; context-specific).
+Dataset: Brazilian E-Commerce Public Dataset by Olist (Kaggle), CC BY-NC-SA 4.0, listing verified 2026-11-14. Legal interpretation for this portfolio/job-application use is not independently resolved. The original dataset is not redistributed in this repository. No project source-code license is granted yet (no `LICENSE` file). See [docs/dataset_license_notes.md](docs/dataset_license_notes.md).
 
-> Dataset: Brazilian E-Commerce Public Dataset by Olist. Source: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce. The Kaggle dataset listing identifies the license as CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/). This project uses a cleaned, transformed, and analyzed version of the source data. The original dataset is not redistributed in this repository. No endorsement by Olist is implied.
+## About the author
 
-- **BY:** provide appropriate attribution, source link, license link, and indicate modifications. **NC:** use must not be primarily intended for commercial advantage or monetary compensation. **SA:** qualifying adapted material publicly shared must be distributed under the same or a compatible license.
-- This repository does not intentionally redistribute original raw CSV files or the local DuckDB database. It publishes selected aggregate findings, charts, and documentation. The dataset license does not automatically apply to all original Python/SQL/configuration code, and derived outputs do not automatically constitute Adapted Material in all cases; application depends on the material and applicable rights.
-- **Project source code:** no project-wide open-source license is currently granted (no `LICENSE` file). Public visibility on GitHub does not grant general reuse permission. Any future code license must be limited to material the owner can license and must respect upstream/third-party terms (MIT for original code is a possible option pending owner authorization).
+Maulana Kindi · [LinkedIn](https://www.linkedin.com/in/maulanakinditamami/)
 
-Details and distinctions (original dataset, project source code, analytical findings/derived outputs, third-party dependencies/assets): [docs/dataset_license_notes.md](docs/dataset_license_notes.md).
+## Glossary in plain English
+
+- **GMV (gross merchandise value):** total sales value of orders, based on payments.
+- **AOV (average order value):** GMV divided by number of orders.
+- **Grain:** the level of detail a table uses — for example, one row per order, or one row per review linked to an order.
+- **Review-order record:** one review linked to one order; an order can have more than one review record.
+- **On-time rate:** share of delivered orders that arrived on or before the estimated delivery date.
+- **Repeat rate:** share of customers who placed more than one order.

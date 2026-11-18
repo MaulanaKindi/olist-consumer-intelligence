@@ -84,3 +84,4 @@ nbody.json
 
 # Project-specific ignores
 # Add any project-specific files that should not be committed here
+.roo/
