@@ -335,6 +335,7 @@ def test_cmd_run_non_default_db_isolates_outputs_and_preserves_defaults(tmp_path
 
     # keep real PROJECT_ROOT so scripts are found; redirect config/output paths and raw inputs
     monkeypatch.setattr("src.config.RAW_DATA_DIR", raw)
+    monkeypatch.setattr("src.ingest.RAW_DATA_DIR", raw)
     monkeypatch.setattr("src.config.FINDINGS_DIR", project / "outputs" / "findings")
     monkeypatch.setattr("src.config.CHARTS_DIR", project / "outputs" / "charts")
     monkeypatch.setattr("src.config.REPORTS_DIR", project / "outputs" / "reports")
