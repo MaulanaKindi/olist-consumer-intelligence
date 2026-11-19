@@ -184,7 +184,8 @@ def test_monthly_chart_x_alignment():
 
     # (c) the x of the maximum-order point has a tick label equal to the month
     # named by title_monthly_orders
-    max_i = ys.index(max(ys))
+    valid = [(i, y) for i, y in enumerate(ys) if y == y]  # exclude NaN
+    max_i = max(valid, key=lambda t: t[1])[0]
     max_x = int(xs[max_i])
     title = title_monthly_orders(df)
     peak_month = title.split("peaked in ")[1].split(" with ")[0]

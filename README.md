@@ -4,7 +4,7 @@ This analysis covers roughly 100,000 orders from the Brazilian Olist e-commerce 
 
 ## 30-second summary
 
-We joined orders, items, payments, deliveries, reviews, and customer location at the correct grain so each metric is counted once. The headline: orders delivered on time or early average about 4.3 stars, while late deliveries average about 2.3 stars — a clear gap. Delivery speed varies widely by state, and only about 3% of customers placed more than one order in the period. Together these suggest that delivery reliability is the most promising area to investigate or test, consistent with associations, not causation.
+The analysis joins orders, items, payments, deliveries, reviews, and customer location at the correct grain so each metric is counted once. The headline: orders delivered on time or early average about 4.3 stars, while late deliveries average about 2.3 stars — a clear gap. Delivery speed varies widely by state, and only about 3% of customers placed more than one order in the period. Together these suggest that delivery reliability is the most promising area to investigate or test, the data show associations, not causes.
 
 ## Headline numbers
 
@@ -15,7 +15,7 @@ We joined orders, items, payments, deliveries, reviews, and customer location at
 - **Review gap: 4.29 stars on-time/early vs 2.27 late** — late delivery tracks with much lower satisfaction (association, not causation).
 - **3.12% repeat customer rate** — share of customers placing more than one order.
 
-Figure 1 — Average customer review score by delivery time bucket. Each bar is the average review (1–5 stars) for orders in that delivery window; `n` is the number of review-order records. The 30+ days bucket is highlighted because it has the lowest average review (computed from the data).
+Figure 1 — Average customer review score by delivery time bucket. Each bar is the average review (1–5 stars) for orders in that delivery window; `n` is the number of review-order records. The 30+ days bucket is highlighted because it has the lowest average review (computed from the data). How to read: taller review scores cluster in faster buckets; the gap widens sharply at 30+ days.
 
 ![Figure 1: average review score by delivery time bucket](docs/assets/review_by_delivery_bucket.png)
 
@@ -56,7 +56,7 @@ Compact summary; full source, filter, and grain detail for every metric is in `d
 | Typical spend | 160.99 BRL average order value (median 105.29 BRL) | Most orders are modest; the mean is pulled up by larger orders. |
 | Delivery reliability | 93.23% on-time (derived late share 6.77%) | Most orders arrive on time, but a meaningful share is late. |
 | Satisfaction gap | 4.29 stars on-time/early vs 2.27 late | Late delivery tracks with far lower reviews (association). |
-| Delivery speed by state | 8.3 days in SP vs 19–24+ days in several North/Northeast states | Service is uneven across regions. |
+| Delivery speed by state | 8.3 days in São Paulo (SP) vs 19–24+ days in several North/Northeast states | Service is uneven across regions. |
 | Category revenue leaders | health_beauty, watches_gifts, bed_bath_table, sports_leisure, computers_accessories | Revenue concentrates in a handful of categories (English names; source slugs in the data dictionary). |
 | Repeat behavior | 3.12% repeat customer rate | Limited observed repeat purchasing in-period. |
 
@@ -76,8 +76,7 @@ Details: [Executive summary](docs/executive_summary.md) · [Strategic recommenda
 |---|---|
 | ![Monthly order volume](docs/assets/monthly_orders.png) | ![GMV by customer state](docs/assets/revenue_by_state.png) |
 
-- **Monthly order volume:** shows order counts across the complete month spine; boundary months (2016-09, 2018-09, 2018-10) are partial and marked. *How to read:* do not treat endpoints as trend breaks.
-- **Average review by delivery time bucket:** Figure 1 above. *How to read:* taller review scores cluster in faster buckets; the gap widens sharply at 30+ days.
+- **Monthly order volume:** the line covers complete months only; hollow markers flag partial or near-zero months (2016-09, 2016-11, 2016-12, 2018-09, 2018-10), which reflect data coverage limits, not business collapses. *How to read:* do not treat endpoints or hollow-marker months as trend breaks.
 - **GMV by customer state (top 15):** sales value concentrated in a few states, led by São Paulo (SP). *How to read:* top 15 of 27 states; computed shares use all states.
 
 ## Reproducibility

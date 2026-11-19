@@ -14,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from src.config import CHARTS_DIR, DUCKDB_PATH, FINDINGS_DIR, PROJECT_ROOT, REPORTS_DIR
@@ -149,29 +150,64 @@ def title_revenue_by_state(geo: pd.DataFrame) -> str:
     return f"{state} alone accounts for about {share:.0%} of GMV"
 
 
-def plot_monthly_orders(ax: plt.Axes, monthly: pd.DataFrame) -> None:
-    # Complete months carry the real volume; partial and near-zero months are
-    # marked separately so they do not read as a real collapse in the series.
-    # Positions are spine indices (0..n-1) so markers line up with the ticks.
+def near_zero_month_mask(monthly):
+    counts = pd.to_numeric(monthly["order_count"], errors="coerce").fillna(0)
+    max_count = float(counts.max()) if len(counts) else 0.0
+    threshold = max_count * 0.01
+    return counts < threshold
+
+
+def _near_zero_months(monthly):
     spine = monthly.reset_index(drop=True)
-    positions = spine.index.to_numpy()
-    complete_mask = (~spine["is_partial_boundary_month"]) & (spine["order_count"] > 0)
-    gap_mask = spine["is_partial_boundary_month"] | (spine["order_count"] == 0)
-    complete_pos = positions[complete_mask.to_numpy()]
-    complete_vals = spine.loc[complete_mask, "order_count"]
+    mask = near_zero_month_mask(spine).to_numpy()
+    return [str(m) for m, f in zip(spine["month"], mask) if bool(f)]
+
+
+def monthly_orders_footnote(monthly):
+    spine = monthly.reset_index(drop=True)
+    near_mask = near_zero_month_mask(spine).to_numpy()
+    partial_mask = spine["is_partial_boundary_month"].astype(bool).to_numpy()
+    near_parts = [
+        f"{m} has {int(c)} order{'s' if int(c) != 1 else ''}"
+        for m, c, f in zip(spine["month"], spine["order_count"], near_mask)
+        if bool(f)
+    ]
+    partial_months = [str(m) for m, f in zip(spine["month"], partial_mask) if bool(f)]
+    pieces = ["Observed period: 2016-09-04 to 2018-10-17."]
+    if near_parts:
+        pieces.append(" and ".join(near_parts) + ";")
+    if partial_months:
+        pieces.append(", ".join(partial_months) + " are partial months.")
+    return " ".join(pieces)
+
+
+is_near_zero_month = near_zero_month_mask
+flag_near_zero_months = near_zero_month_mask
+near_zero_months = _near_zero_months
+near_zero_month_labels = _near_zero_months
+build_monthly_footnote = monthly_orders_footnote
+monthly_footnote = monthly_orders_footnote
+footnote_monthly_orders = monthly_orders_footnote
+
+
+def plot_monthly_orders(ax, monthly):
+    spine = monthly.reset_index(drop=True)
+    positions = np.arange(len(spine))
+    near_mask = near_zero_month_mask(spine).to_numpy()
+    partial_mask = spine["is_partial_boundary_month"].astype(bool).to_numpy()
+    flagged = near_mask | partial_mask
+    line_vals = spine["order_count"].astype(float).where(~pd.Series(flagged), np.nan)
     ax.plot(
-        complete_pos,
-        complete_vals,
+        positions,
+        line_vals,
         marker="o",
         color=PALETTE["blue"],
         label="Observed orders (complete months)",
     )
-    if gap_mask.any():
-        gap_pos = positions[gap_mask.to_numpy()]
-        gap_vals = spine.loc[gap_mask, "order_count"]
+    if flagged.any():
         ax.scatter(
-            gap_pos,
-            gap_vals,
+            positions[flagged],
+            spine.loc[flagged, "order_count"],
             marker="o",
             facecolors="none",
             edgecolors=PALETTE["vermillion"],
@@ -184,8 +220,7 @@ def plot_monthly_orders(ax: plt.Axes, monthly: pd.DataFrame) -> None:
     apply_chart_style(ax)
     ax.legend(loc="upper left", fontsize=8)
     ax.annotate(
-        "Observed period: 2016-09-04 to 2018-10-17. 2016-11 has 0 orders and "
-        "2016-12 has 1 order; 2016-09, 2018-09, and 2018-10 are partial months.",
+        monthly_orders_footnote(monthly),
         xy=(0.01, -0.32),
         xycoords="axes fraction",
         fontsize=8,
