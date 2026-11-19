@@ -152,27 +152,34 @@ def title_revenue_by_state(geo: pd.DataFrame) -> str:
 def plot_monthly_orders(ax: plt.Axes, monthly: pd.DataFrame) -> None:
     # Complete months carry the real volume; partial and near-zero months are
     # marked separately so they do not read as a real collapse in the series.
-    complete = monthly[(~monthly["is_partial_boundary_month"]) & (monthly["order_count"] > 0)]
-    gap = monthly[(monthly["is_partial_boundary_month"]) | (monthly["order_count"] == 0)]
+    # Positions are spine indices (0..n-1) so markers line up with the ticks.
+    spine = monthly.reset_index(drop=True)
+    positions = spine.index.to_numpy()
+    complete_mask = (~spine["is_partial_boundary_month"]) & (spine["order_count"] > 0)
+    gap_mask = spine["is_partial_boundary_month"] | (spine["order_count"] == 0)
+    complete_pos = positions[complete_mask.to_numpy()]
+    complete_vals = spine.loc[complete_mask, "order_count"]
     ax.plot(
-        complete["month"],
-        complete["order_count"],
+        complete_pos,
+        complete_vals,
         marker="o",
         color=PALETTE["blue"],
         label="Observed orders (complete months)",
     )
-    if not gap.empty:
+    if gap_mask.any():
+        gap_pos = positions[gap_mask.to_numpy()]
+        gap_vals = spine.loc[gap_mask, "order_count"]
         ax.scatter(
-            gap["month"],
-            gap["order_count"],
+            gap_pos,
+            gap_vals,
             marker="o",
             facecolors="none",
             edgecolors=PALETTE["vermillion"],
             zorder=3,
             label="Partial or near-zero month",
         )
-    ax.set_xticks(range(len(monthly["month"])))
-    ax.set_xticklabels(monthly["month"], rotation=45, ha="right")
+    ax.set_xticks(range(len(spine)))
+    ax.set_xticklabels(spine["month"], rotation=45, ha="right")
     ax.set_ylabel("Orders")
     apply_chart_style(ax)
     ax.legend(loc="upper left", fontsize=8)
@@ -217,7 +224,7 @@ def plot_review_by_delivery(ax: plt.Axes, by_bucket: pd.DataFrame) -> None:
 def plot_revenue_by_state(ax: plt.Axes, geo: pd.DataFrame) -> None:
     top = geo.head(15)
     values_m = top["gmv_payments"] / 1e6
-    labels = ["São Paulo (SP)" if s == "SP" else s for s in top["state"]]
+    labels = ["São Paulo\n(SP)" if s == "SP" else s for s in top["state"]]
     bars = ax.bar(labels, values_m, color=PALETTE["blue"])
     # Highlight the leading state; keep the rest neutral.
     if len(bars):
