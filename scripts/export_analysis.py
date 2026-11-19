@@ -14,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from src.config import CHARTS_DIR, DUCKDB_PATH, FINDINGS_DIR, PROJECT_ROOT, REPORTS_DIR
@@ -145,30 +146,82 @@ def title_revenue_by_state(geo: pd.DataFrame) -> str:
     top_idx = geo["gmv_payments"].idxmax()
     top = geo.loc[top_idx]
     share = top["gmv_payments"] / total if total else 0.0
-    return f"{top['state']} alone accounts for about {share:.0%} of GMV"
+    state = "São Paulo (SP)" if str(top["state"]) == "SP" else str(top["state"])
+    return f"{state} alone accounts for about {share:.0%} of GMV"
 
 
-def plot_monthly_orders(ax: plt.Axes, monthly: pd.DataFrame) -> None:
-    x = monthly["month"]
-    y = monthly["order_count"]
-    ax.plot(x, y, marker="o", color=PALETTE["blue"], label="Observed orders")
-    boundary = monthly[monthly["is_partial_boundary_month"]]
-    if not boundary.empty:
+def near_zero_month_mask(monthly):
+    counts = pd.to_numeric(monthly["order_count"], errors="coerce").fillna(0)
+    max_count = float(counts.max()) if len(counts) else 0.0
+    threshold = max_count * 0.01
+    return counts < threshold
+
+
+def _near_zero_months(monthly):
+    spine = monthly.reset_index(drop=True)
+    mask = near_zero_month_mask(spine).to_numpy()
+    return [str(m) for m, f in zip(spine["month"], mask) if bool(f)]
+
+
+def monthly_orders_footnote(monthly):
+    spine = monthly.reset_index(drop=True)
+    near_mask = near_zero_month_mask(spine).to_numpy()
+    partial_mask = spine["is_partial_boundary_month"].astype(bool).to_numpy()
+    near_parts = [
+        f"{m} has {int(c)} order{'s' if int(c) != 1 else ''}"
+        for m, c, f in zip(spine["month"], spine["order_count"], near_mask)
+        if bool(f)
+    ]
+    partial_months = [str(m) for m, f in zip(spine["month"], partial_mask) if bool(f)]
+    pieces = ["Observed period: 2016-09-04 to 2018-10-17."]
+    if near_parts:
+        pieces.append(" and ".join(near_parts) + ";")
+    if partial_months:
+        pieces.append(", ".join(partial_months) + " are partial months.")
+    return " ".join(pieces)
+
+
+is_near_zero_month = near_zero_month_mask
+flag_near_zero_months = near_zero_month_mask
+near_zero_months = _near_zero_months
+near_zero_month_labels = _near_zero_months
+build_monthly_footnote = monthly_orders_footnote
+monthly_footnote = monthly_orders_footnote
+footnote_monthly_orders = monthly_orders_footnote
+
+
+def plot_monthly_orders(ax, monthly):
+    spine = monthly.reset_index(drop=True)
+    positions = np.arange(len(spine))
+    near_mask = near_zero_month_mask(spine).to_numpy()
+    partial_mask = spine["is_partial_boundary_month"].astype(bool).to_numpy()
+    flagged = near_mask | partial_mask
+    line_vals = spine["order_count"].astype(float).where(~pd.Series(flagged), np.nan)
+    ax.plot(
+        positions,
+        line_vals,
+        marker="o",
+        color=PALETTE["blue"],
+        label="Observed orders (complete months)",
+    )
+    if flagged.any():
         ax.scatter(
-            boundary["month"],
-            boundary["order_count"],
-            color=PALETTE["vermillion"],
+            positions[flagged],
+            spine.loc[flagged, "order_count"],
+            marker="o",
+            facecolors="none",
+            edgecolors=PALETTE["vermillion"],
             zorder=3,
-            label="Partial boundary month",
+            label="Partial or near-zero month",
         )
-    ax.set_xticks(range(len(x)))
-    ax.set_xticklabels(x, rotation=45, ha="right")
+    ax.set_xticks(range(len(spine)))
+    ax.set_xticklabels(spine["month"], rotation=45, ha="right")
     ax.set_ylabel("Orders")
     apply_chart_style(ax)
     ax.legend(loc="upper left", fontsize=8)
     ax.annotate(
-        "Observed period: 2016-09-04 to 2018-10-17; 2016-09 and 2018-09/2018-10 are partial",
-        xy=(0.01, -0.28),
+        monthly_orders_footnote(monthly),
+        xy=(0.01, -0.32),
         xycoords="axes fraction",
         fontsize=8,
         color="#444444",
@@ -206,7 +259,8 @@ def plot_review_by_delivery(ax: plt.Axes, by_bucket: pd.DataFrame) -> None:
 def plot_revenue_by_state(ax: plt.Axes, geo: pd.DataFrame) -> None:
     top = geo.head(15)
     values_m = top["gmv_payments"] / 1e6
-    bars = ax.bar(top["state"], values_m, color=PALETTE["blue"])
+    labels = ["São Paulo\n(SP)" if s == "SP" else s for s in top["state"]]
+    bars = ax.bar(labels, values_m, color=PALETTE["blue"])
     # Highlight the leading state; keep the rest neutral.
     if len(bars):
         bars[0].set_color(PALETTE["vermillion"])

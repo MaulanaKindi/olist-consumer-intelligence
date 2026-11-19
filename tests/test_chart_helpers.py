@@ -143,3 +143,61 @@ def test_render_revenue_by_state_png(tmp_path):
     fig.savefig(out)
     plt.close(fig)
     assert _is_png(out)
+
+
+def _monthly_alignment_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "month": ["2017-01", "2017-02", "2017-03", "2017-04", "2017-05", "2017-06"],
+            "order_count": [100, 0, 200, 300, 250, 150],
+            "gmv_payments": [1000.0, 0.0, 2000.0, 3000.0, 2500.0, 1500.0],
+            "is_partial_boundary_month": [True, False, False, False, False, True],
+        }
+    )
+
+
+def test_monthly_chart_x_alignment():
+    """Regression: plotted x positions must equal spine indices, not a re-indexed subset."""
+    fig, ax = plt.subplots()
+    df = _monthly_alignment_df()
+    plot_monthly_orders(ax, df)
+
+    line = ax.lines[0]
+    xs = [float(v) for v in line.get_xdata()]
+    ys = [float(v) for v in line.get_ydata()]
+    labels = [lbl.get_text() for lbl in ax.get_xticklabels()]
+
+    months = list(df["month"])
+    n = len(months)
+
+    # (a) every plotted x equals that month's index in the spine
+    for x in xs:
+        assert x == int(x), f"non-integer x: {x}"
+        assert 0 <= int(x) < n, f"x out of spine range: {x}"
+
+    # (b) the tick label at each plotted x equals that month's string
+    for x in xs:
+        xi = int(x)
+        assert (
+            labels[xi] == months[xi]
+        ), f"tick label mismatch at x={xi}: {labels[xi]!r} != {months[xi]!r}"
+
+    # (c) the x of the maximum-order point has a tick label equal to the month
+    # named by title_monthly_orders
+    valid = [(i, y) for i, y in enumerate(ys) if y == y]  # exclude NaN
+    max_i = max(valid, key=lambda t: t[1])[0]
+    max_x = int(xs[max_i])
+    title = title_monthly_orders(df)
+    peak_month = title.split("peaked in ")[1].split(" with ")[0]
+    assert (
+        labels[max_x] == peak_month
+    ), f"peak x tick {labels[max_x]!r} != title month {peak_month!r}"
+
+    # scatter (partial/near-zero months) must also sit at spine positions
+    if ax.collections:
+        offsets = ax.collections[0].get_offsets()
+        for ox, _ in offsets:
+            oxi = int(round(float(ox)))
+            assert 0 <= oxi < n, f"scatter x out of spine range: {ox}"
+
+    plt.close(fig)
