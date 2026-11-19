@@ -1,6 +1,6 @@
 # Olist Consumer & Marketplace Intelligence
 
-![CI](https://img.shields.io/github/actions/workflow/status/MaulanaKindi/olist-consumer-intelligence/ci.yml?branch=master&label=CI)
+[![CI](https://img.shields.io/github/actions/workflow/status/MaulanaKindi/olist-consumer-intelligence/ci.yml?branch=master&label=CI)](https://github.com/MaulanaKindi/olist-consumer-intelligence/actions)
 
 This analysis covers roughly 100,000 orders from the Brazilian Olist e-commerce marketplace (observed 2016-09-04 to 2018-10-17) to answer one question: does delivery speed relate to customer satisfaction? This is an observational portfolio piece — it shows associations, not cause and effect.
 
