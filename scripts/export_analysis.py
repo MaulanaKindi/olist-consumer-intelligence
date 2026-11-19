@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import textwrap
 from pathlib import Path
 
 # Ensure project root is importable when run as a script.
@@ -167,18 +168,23 @@ def monthly_orders_footnote(monthly):
     spine = monthly.reset_index(drop=True)
     near_mask = near_zero_month_mask(spine).to_numpy()
     partial_mask = spine["is_partial_boundary_month"].astype(bool).to_numpy()
-    near_parts = [
-        f"{m} has {int(c)} order{'s' if int(c) != 1 else ''}"
-        for m, c, f in zip(spine["month"], spine["order_count"], near_mask)
+    partial_items = [
+        f"{m} ({int(c)})"
+        for m, c, f in zip(spine["month"], spine["order_count"], partial_mask)
         if bool(f)
     ]
-    partial_months = [str(m) for m, f in zip(spine["month"], partial_mask) if bool(f)]
-    pieces = ["Observed period: 2016-09-04 to 2018-10-17."]
-    if near_parts:
-        pieces.append(" and ".join(near_parts) + ";")
-    if partial_months:
-        pieces.append(", ".join(partial_months) + " are partial months.")
-    return " ".join(pieces)
+    near_items = [
+        f"{m} ({int(c)})"
+        for m, c, f, pf in zip(spine["month"], spine["order_count"], near_mask, partial_mask)
+        if bool(f) and not bool(pf)
+    ]
+    sentences = ["Observed period: 2016-09-04 to 2018-10-17."]
+    if partial_items:
+        sentences.append("Partial boundary months: " + ", ".join(partial_items) + ".")
+    if near_items:
+        sentences.append("Near-zero months: " + ", ".join(near_items) + ".")
+    text = " ".join(sentences)
+    return "\n".join(textwrap.wrap(text, width=110))
 
 
 is_near_zero_month = near_zero_month_mask
@@ -215,7 +221,7 @@ def plot_monthly_orders(ax, monthly):
             label="Partial or near-zero month",
         )
     ax.set_xticks(range(len(spine)))
-    ax.set_xticklabels(spine["month"], rotation=45, ha="right")
+    ax.set_xticklabels(spine["month"], rotation=45, ha="right", fontsize=8)
     ax.set_ylabel("Orders")
     apply_chart_style(ax)
     ax.legend(loc="upper left", fontsize=8)
