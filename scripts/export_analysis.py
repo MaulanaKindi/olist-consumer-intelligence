@@ -145,30 +145,41 @@ def title_revenue_by_state(geo: pd.DataFrame) -> str:
     top_idx = geo["gmv_payments"].idxmax()
     top = geo.loc[top_idx]
     share = top["gmv_payments"] / total if total else 0.0
-    return f"{top['state']} alone accounts for about {share:.0%} of GMV"
+    state = "São Paulo (SP)" if str(top["state"]) == "SP" else str(top["state"])
+    return f"{state} alone accounts for about {share:.0%} of GMV"
 
 
 def plot_monthly_orders(ax: plt.Axes, monthly: pd.DataFrame) -> None:
-    x = monthly["month"]
-    y = monthly["order_count"]
-    ax.plot(x, y, marker="o", color=PALETTE["blue"], label="Observed orders")
-    boundary = monthly[monthly["is_partial_boundary_month"]]
-    if not boundary.empty:
+    # Complete months carry the real volume; partial and near-zero months are
+    # marked separately so they do not read as a real collapse in the series.
+    complete = monthly[(~monthly["is_partial_boundary_month"]) & (monthly["order_count"] > 0)]
+    gap = monthly[(monthly["is_partial_boundary_month"]) | (monthly["order_count"] == 0)]
+    ax.plot(
+        complete["month"],
+        complete["order_count"],
+        marker="o",
+        color=PALETTE["blue"],
+        label="Observed orders (complete months)",
+    )
+    if not gap.empty:
         ax.scatter(
-            boundary["month"],
-            boundary["order_count"],
-            color=PALETTE["vermillion"],
+            gap["month"],
+            gap["order_count"],
+            marker="o",
+            facecolors="none",
+            edgecolors=PALETTE["vermillion"],
             zorder=3,
-            label="Partial boundary month",
+            label="Partial or near-zero month",
         )
-    ax.set_xticks(range(len(x)))
-    ax.set_xticklabels(x, rotation=45, ha="right")
+    ax.set_xticks(range(len(monthly["month"])))
+    ax.set_xticklabels(monthly["month"], rotation=45, ha="right")
     ax.set_ylabel("Orders")
     apply_chart_style(ax)
     ax.legend(loc="upper left", fontsize=8)
     ax.annotate(
-        "Observed period: 2016-09-04 to 2018-10-17; 2016-09 and 2018-09/2018-10 are partial",
-        xy=(0.01, -0.28),
+        "Observed period: 2016-09-04 to 2018-10-17. 2016-11 has 0 orders and "
+        "2016-12 has 1 order; 2016-09, 2018-09, and 2018-10 are partial months.",
+        xy=(0.01, -0.32),
         xycoords="axes fraction",
         fontsize=8,
         color="#444444",
@@ -206,7 +217,8 @@ def plot_review_by_delivery(ax: plt.Axes, by_bucket: pd.DataFrame) -> None:
 def plot_revenue_by_state(ax: plt.Axes, geo: pd.DataFrame) -> None:
     top = geo.head(15)
     values_m = top["gmv_payments"] / 1e6
-    bars = ax.bar(top["state"], values_m, color=PALETTE["blue"])
+    labels = ["São Paulo (SP)" if s == "SP" else s for s in top["state"]]
+    bars = ax.bar(labels, values_m, color=PALETTE["blue"])
     # Highlight the leading state; keep the rest neutral.
     if len(bars):
         bars[0].set_color(PALETTE["vermillion"])
