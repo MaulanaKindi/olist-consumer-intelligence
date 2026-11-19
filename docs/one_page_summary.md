@@ -21,7 +21,7 @@
 
 ## What it suggests
 
-Delivery reliability is the most promising area to investigate or test, consistent with associations, not causation. Regional SLA gaps and category scorecards are secondary priorities. Low repeat purchasing (3.12%) should be confirmed against customer identity linkage before loyalty conclusions.
+Delivery reliability is the most promising area to investigate or test; the data show associations, not causes. Regional SLA gaps and category scorecards are secondary priorities. Low repeat purchasing (3.12%) should be confirmed against customer identity linkage before loyalty conclusions.
 
 ## Limits
 

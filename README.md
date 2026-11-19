@@ -1,12 +1,13 @@
 # Olist Consumer & Marketplace Intelligence
 
-[![CI](https://img.shields.io/github/actions/workflow/status/MaulanaKindi/olist-consumer-intelligence/ci.yml?branch=master&label=CI)](https://github.com/MaulanaKindi/olist-consumer-intelligence/actions)
+[![CI](https://github.com/MaulanaKindi/olist-consumer-intelligence/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/MaulanaKindi/olist-consumer-intelligence/actions/workflows/ci.yml)
+
 
 This analysis covers roughly 100,000 orders from the Brazilian Olist e-commerce marketplace (observed 2016-09-04 to 2018-10-17) to answer one question: does delivery speed relate to customer satisfaction? This is an observational portfolio piece — it shows associations, not cause and effect.
 
 ## 30-second summary
 
-The analysis joins orders, items, payments, deliveries, reviews, and customer location at the correct grain so each metric is counted once. The headline: orders delivered on time or early average about 4.3 stars, while late deliveries average about 2.3 stars — a clear gap. Delivery speed varies widely by state, and only about 3% of customers placed more than one order in the period. Together these suggest that delivery reliability is the most promising area to investigate or test, the data show associations, not causes.
+The analysis joins orders, items, payments, deliveries, reviews, and customer location at the correct grain so each metric is counted once. The headline: orders delivered on time or early average about 4.3 stars, while late deliveries average about 2.3 stars — a clear gap. Delivery speed varies widely by state, and only about 3% of customers placed more than one order in the period. Together these suggest that delivery reliability is the most promising area to investigate or test; the data show associations, not causes.
 
 ## Headline numbers
 
